@@ -6,6 +6,13 @@ import sys
 
 app = DataBrowser(sys.argv)
 
+
+# views are loaded in order of more generic to more specific.
+## ie the last loaded views are checked first for compatibility
+
+from viewers.images import ScipyImreadView
+app.load_view(ScipyImreadView(app))
+
 from viewers.apd_confocal_npz import ApdConfocalNPZView
 app.load_view(ApdConfocalNPZView(app))
 
