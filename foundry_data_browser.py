@@ -1,6 +1,11 @@
 from __future__ import absolute_import, print_function
 from ScopeFoundry.data_browser import DataBrowser
+import logging
+import sys
 
+logging.basicConfig(level=logging.INFO)#, filename='example.log', stream=sys.stdout)
+
+logger = logging.getLogger('FoundryDataBrowser')
 
 import sys
 
@@ -14,8 +19,8 @@ try:
     from viewers.images import ScipyImreadView
     app.load_view(ScipyImreadView(app))
 except ImportError:
-    print("missing scipy")
-
+    logger.warning("missing scipy")
+    
 from viewers.apd_confocal_npz import ApdConfocalNPZView
 app.load_view(ApdConfocalNPZView(app))
 
