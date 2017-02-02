@@ -15,6 +15,9 @@ app = DataBrowser(sys.argv)
 # views are loaded in order of more generic to more specific.
 ## ie the last loaded views are checked first for compatibility
 
+from viewers.h5_tree import H5TreeView
+app.load_view(H5TreeView(app))
+
 try:
     from viewers.images import ScipyImreadView
     app.load_view(ScipyImreadView(app))
