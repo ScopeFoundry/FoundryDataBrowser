@@ -33,6 +33,10 @@ app.load_view(PicoHarpNPZView(app))
 from viewers.hyperspec_npz import HyperSpecNPZView
 app.load_view(HyperSpecNPZView(app))
 
+from viewers.hyperspec_npz import HyperSpecSpecMedianNPZView
+app.load_view(HyperSpecSpecMedianNPZView(app))
+
+
 from viewers.trpl_npz import TRPLNPZView
 app.load_view(TRPLNPZView(app))
 
@@ -47,6 +51,9 @@ app.load_view(WinSpecMCL2DSlowScanView(app))
 
 from viewers.WinSpecRemoteReadoutView import WinSpecRemoteReadoutView
 app.load_view(WinSpecRemoteReadoutView(app))
+
+from viewers.power_scan_h5 import PowerScanH5View
+app.load_view(PowerScanH5View(app))
 
 
 sys.exit(app.exec_())
