@@ -1,10 +1,10 @@
 from __future__ import absolute_import, print_function
 from ScopeFoundry.data_browser import DataBrowser
 import logging
-import sys
 
-logging.basicConfig(level=logging.INFO)#, filename='example.log', stream=sys.stdout)
-
+logging.basicConfig(level=logging.DEBUG)#, filename='example.log', stream=sys.stdout)
+logging.getLogger('traitlets').setLevel(logging.WARN)
+logging.getLogger('ipykernel.inprocess').setLevel(logging.WARN)
 logger = logging.getLogger('FoundryDataBrowser')
 
 import sys
@@ -24,8 +24,9 @@ try:
 except ImportError:
     logger.warning("missing scipy")
     
-from viewers.apd_confocal_npz import ApdConfocalNPZView
+from viewers.apd_confocal_npz import ApdConfocalNPZView, ApdConfocal3dNPZView
 app.load_view(ApdConfocalNPZView(app))
+app.load_view(ApdConfocal3dNPZView(app))
 
 from viewers.picoharp_npz import PicoHarpNPZView
 app.load_view(PicoHarpNPZView(app))
