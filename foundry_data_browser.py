@@ -56,5 +56,8 @@ app.load_view(WinSpecRemoteReadoutView(app))
 from viewers.power_scan_h5 import PowerScanH5View
 app.load_view(PowerScanH5View(app))
 
+from viewers.sync_raster_scan_h5 import SyncRasterScanH5
+app.load_view(SyncRasterScanH5(app))
+
 
 sys.exit(app.exec_())
