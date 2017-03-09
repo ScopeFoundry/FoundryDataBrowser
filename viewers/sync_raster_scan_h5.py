@@ -62,7 +62,7 @@ class SyncRasterScanH5(DataBrowserView):
         elif chan == 'ctr1':
             im = M['ctr_map'][ii, jj, :,:, 1]
 
-        self.imview.setImage(im, autoLevels=self.settings['auto_level'], )
+        self.imview.setImage(im.T, autoLevels=self.settings['auto_level'], )
 
 
         #self.info_label.setText("{} plane {}={} um (index={})".format(
