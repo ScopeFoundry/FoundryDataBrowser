@@ -59,5 +59,8 @@ app.load_view(PowerScanH5View(app))
 from viewers.sync_raster_scan_h5 import SyncRasterScanH5
 app.load_view(SyncRasterScanH5(app))
 
+from viewers.auger_spectrum_h5 import AugerSpectrumH5
+app.load_view(AugerSpectrumH5(app))
+
 
 sys.exit(app.exec_())
