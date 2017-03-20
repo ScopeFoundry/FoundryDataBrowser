@@ -37,6 +37,8 @@ app.load_view(HyperSpecNPZView(app))
 from viewers.hyperspec_npz import HyperSpecSpecMedianNPZView
 app.load_view(HyperSpecSpecMedianNPZView(app))
 
+from viewers.trpl_t_x_lifetime import TRPL_t_x_lifetime_NPZView
+app.load_view(TRPL_t_x_lifetime_NPZView(app))
 
 from viewers.trpl_npz import TRPLNPZView
 app.load_view(TRPLNPZView(app))
