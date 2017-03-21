@@ -76,7 +76,8 @@ class TRPL_t_x_lifetime_NPZView(HyperSpectralBaseView):
         self.settings_ui.layout().addRow("Compute:", self.compute_button)
         self.compute_button.clicked.connect(self.compute_lifetime_map)
         
-        self.splitter.insertWidget(0, self.settings_ui )
+        #self.splitter.insertWidget(0, self.settings_ui )
+        self.dockarea.addDock(name='settings', widget=self.settings_ui, position='left')
         
         self.settings.kk_start.add_listener(self.on_update_kk_bounds)
         self.settings.kk_stop.add_listener(self.on_update_kk_bounds) 
