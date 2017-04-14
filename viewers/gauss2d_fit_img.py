@@ -76,7 +76,13 @@ class Gauss2DFitImgView(DataBrowserView):
         
         if success:
             
-            self.info_label.setText("height:{}, x: {}, y: {}, width_x: {}, width_y: {}, angle: {}".format(*p))
+            fwhm_x = 2*np.sqrt(2*np.log(2)) * width_x
+            fwhm_y = 2*np.sqrt(2*np.log(2)) * width_y
+            
+            self.info_label.setText(
+                "height:{}, x: {}, y: {}, width_x: {}, width_y: {}, angle: {}".format(*p) +
+                "\nfwhm {} {}".format(fwhm_x, fwhm_y)
+                )
             
             ny,nx = self.roi_img.shape
             X,Y = np.mgrid[:ny,:nx]
