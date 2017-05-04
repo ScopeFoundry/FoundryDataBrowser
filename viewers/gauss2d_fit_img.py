@@ -6,7 +6,7 @@ import os
 import pyqtgraph.dockarea
 from qtpy import QtCore, QtWidgets
 from pyqtgraph.graphicsItems.ROI import EllipseROI
-
+import h5py
 
 class Gauss2DFitImgView(DataBrowserView):
 
@@ -43,12 +43,11 @@ class Gauss2DFitImgView(DataBrowserView):
             if len(self.data.shape) == 3:
                 self.data = self.data.sum(axis=2)
                 
-            self.imview.setImage(self.data, axes=dict(x=1,y=0))
         except Exception as err:
-            self.imview.setImage(np.zeros((10,10)))
+            self.data = np.zeros((10,10))
             self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
             raise(err)
-
+        self.imview.setImage(self.data, axes=dict(x=1,y=0))
         self.on_change_rect_roi()
 
         
@@ -145,3 +144,18 @@ def fitgaussian(data):
     errorfunction = lambda p: np.ravel(gaussian(*p)(*np.indices(data.shape)) - data)
     p, success = scipy.optimize.leastsq(errorfunction, params)
     return p,success
+    
+    
+    
+class Gauss2DFitAPD_MCL_2dSlowScanView(Gauss2DFitImgView):
+
+    def on_change_data_filename(self, fname):
+        try:
+            self.dat = h5py.File(fname, 'r')
+            self.data = np.array(self.dat['measurement/APD_MCL_2DSlowScan/count_rate_map'][0,:,:].T) # grab first frame
+        except Exception as err:
+            self.data = np.zeros((10,10))
+            self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
+            raise(err)
+        self.imview.setImage(self.data, axes=dict(x=1,y=0))
+        self.on_change_rect_roi()

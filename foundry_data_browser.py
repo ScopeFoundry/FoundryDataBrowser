@@ -18,8 +18,10 @@ app = DataBrowser(sys.argv)
 from FoundryDataBrowser.viewers.h5_tree import H5TreeView
 app.load_view(H5TreeView(app))
 
-from FoundryDataBrowser.viewers.gauss2d_fit_img import Gauss2DFitImgView
+from FoundryDataBrowser.viewers.gauss2d_fit_img import Gauss2DFitImgView, Gauss2DFitAPD_MCL_2dSlowScanView
 app.load_view(Gauss2DFitImgView(app))
+app.load_view(Gauss2DFitAPD_MCL_2dSlowScanView(app))
+
 
 try:
     from viewers.images import ScipyImreadView
