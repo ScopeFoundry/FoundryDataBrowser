@@ -13,11 +13,13 @@ class TRPLNPZView(HyperSpectralBaseView):
     def load_data(self, fname):
         self.dat = np.load(fname)
         
-        cr0 = self.dat['picoharp_count_rate0']
-        rep_period_s = 1.0/cr0
-        time_bin_resolution = self.dat['picoharp_Resolution']*1e-12
-        self.num_hist_chans = int(np.ceil(rep_period_s/time_bin_resolution))
-        
+        try:
+            cr0 = self.dat['picoharp_count_rate0']
+            rep_period_s = 1.0/cr0
+            time_bin_resolution = self.dat['picoharp_Resolution']*1e-12
+            self.num_hist_chans = int(np.ceil(rep_period_s/time_bin_resolution))
+        except:
+            self.num_hist_chans = self.time_trace_map.shape[-1]
         # truncate data to only show the time period associated with rep-rate of laser
         
         self.time_trace_map = self.dat['time_trace_map']
