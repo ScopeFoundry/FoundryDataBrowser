@@ -76,6 +76,9 @@ app.load_view(AugerSyncRasterScanH5(app))
 from FoundryDataBrowser.viewers.auger_spectrum_h5 import AugerSpectrumH5
 app.load_view(AugerSpectrumH5(app))
 
+from FoundryDataBrowser.viewers.auger_sync_raster_scan_h5 import AugerSyncRasterScanH5View
+app.load_view(AugerSyncRasterScanH5View(app))
+
 from FoundryDataBrowser.viewers.power_scan_npz import PowerScanNPZView
 app.load_view(PowerScanNPZView(app))
 
