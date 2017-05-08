@@ -5,6 +5,8 @@ import logging
 logging.basicConfig(level=logging.DEBUG)#, filename='example.log', stream=sys.stdout)
 logging.getLogger('traitlets').setLevel(logging.WARN)
 logging.getLogger('ipykernel.inprocess').setLevel(logging.WARN)
+logging.getLogger('LoggedQuantity').setLevel(logging.WARN)
+logging.getLogger('PyQt5').setLevel(logging.WARN)
 logger = logging.getLogger('FoundryDataBrowser')
 
 import sys
@@ -78,5 +80,9 @@ app.load_view(AugerSyncRasterScanH5View(app))
 
 from FoundryDataBrowser.viewers.power_scan_npz import PowerScanNPZView
 app.load_view(PowerScanNPZView(app))
+
+from FoundryDataBrowser.viewers.andor_ccd_readout_npz import AndorCCDReadoutNPZ
+app.load_view(AndorCCDReadoutNPZ(app))
+
 
 sys.exit(app.exec_())
