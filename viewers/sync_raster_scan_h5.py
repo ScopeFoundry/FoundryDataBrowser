@@ -64,6 +64,8 @@ class SyncRasterScanH5(DataBrowserView):
 
         self.imview.setImage(im.T, autoLevels=self.settings['auto_level'], )
 
+        if self.settings['auto_level']:
+            self.imview.setLevels(*np.percentile(im, (1,99) ))
 
         #self.info_label.setText("{} plane {}={} um (index={})".format(
         #    plane, other_ax, self.dat[other_ax+'_array'][ii], ii))
