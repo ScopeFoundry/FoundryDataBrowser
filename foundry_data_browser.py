@@ -44,9 +44,10 @@ app.load_view(HyperSpecNPZView(app))
 from FoundryDataBrowser.viewers.hyperspec_npz import HyperSpecSpecMedianNPZView
 app.load_view(HyperSpecSpecMedianNPZView(app))
 
-from FoundryDataBrowser.viewers.trpl_t_x_lifetime import TRPL_t_x_lifetime_NPZView, TRPL_t_x_lifetime_fiber_scan_View
+from FoundryDataBrowser.viewers.trpl_t_x_lifetime import TRPL_t_x_lifetime_NPZView, TRPL_t_x_lifetime_fiber_scan_View, TRPL_t_x_lifetime_H5_View
 app.load_view(TRPL_t_x_lifetime_NPZView(app))
 app.load_view(TRPL_t_x_lifetime_fiber_scan_View(app))
+app.load_view(TRPL_t_x_lifetime_H5_View(app))
 
 from FoundryDataBrowser.viewers.trpl_npz import TRPLNPZView, TRPL3dNPZView
 app.load_view(TRPLNPZView(app))
