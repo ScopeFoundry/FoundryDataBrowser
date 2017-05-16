@@ -5,6 +5,8 @@ import logging
 logging.basicConfig(level=logging.DEBUG)#, filename='example.log', stream=sys.stdout)
 logging.getLogger('traitlets').setLevel(logging.WARN)
 logging.getLogger('ipykernel.inprocess').setLevel(logging.WARN)
+logging.getLogger('LoggedQuantity').setLevel(logging.WARN)
+logging.getLogger('PyQt5').setLevel(logging.WARN)
 logger = logging.getLogger('FoundryDataBrowser')
 
 import sys
@@ -42,9 +44,10 @@ app.load_view(HyperSpecNPZView(app))
 from FoundryDataBrowser.viewers.hyperspec_npz import HyperSpecSpecMedianNPZView
 app.load_view(HyperSpecSpecMedianNPZView(app))
 
-from FoundryDataBrowser.viewers.trpl_t_x_lifetime import TRPL_t_x_lifetime_NPZView, TRPL_t_x_lifetime_fiber_scan_View
+from FoundryDataBrowser.viewers.trpl_t_x_lifetime import TRPL_t_x_lifetime_NPZView, TRPL_t_x_lifetime_fiber_scan_View, TRPL_t_x_lifetime_H5_View
 app.load_view(TRPL_t_x_lifetime_NPZView(app))
 app.load_view(TRPL_t_x_lifetime_fiber_scan_View(app))
+app.load_view(TRPL_t_x_lifetime_H5_View(app))
 
 from FoundryDataBrowser.viewers.trpl_npz import TRPLNPZView, TRPL3dNPZView
 app.load_view(TRPLNPZView(app))
@@ -78,5 +81,9 @@ app.load_view(AugerSyncRasterScanH5View(app))
 
 from FoundryDataBrowser.viewers.power_scan_npz import PowerScanNPZView
 app.load_view(PowerScanNPZView(app))
+
+from FoundryDataBrowser.viewers.andor_ccd_readout_npz import AndorCCDReadoutNPZ
+app.load_view(AndorCCDReadoutNPZ(app))
+
 
 sys.exit(app.exec_())

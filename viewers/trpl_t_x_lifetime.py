@@ -164,6 +164,36 @@ class TRPL_t_x_lifetime_fiber_scan_View(TRPL_t_x_lifetime_NPZView):
 
         self.compute_lifetime_map()
 
+class TRPL_t_x_lifetime_H5_View(TRPL_t_x_lifetime_NPZView):
+    name = 'trpl_t_x_lifetime_h5'
+    
+    def is_file_supported(self, fname):
+        return "Picoharp_MCL_2DSlowScan.h5" in fname
+
+    def load_data(self, fname):
+        import h5py
+        #self.dat = np.load(fname)
+        self.dat = h5py.File(fname)
+        self.M = self.dat['measurement/Picoharp_MCL_2DSlowScan']
+        
+        cr0 = self.dat['hardware/picoharp/settings'].attrs['count_rate0']
+        rep_period_s = 1.0/cr0
+        time_bin_resolution = self.dat['hardware/picoharp/settings'].attrs['Resolution']*1e-12
+        self.num_hist_chans = int(np.ceil(rep_period_s/time_bin_resolution))
+        
+        # truncate data to only show the time period associated with rep-rate of laser
+        def norm_2d(X):
+            return X / np.reshape(np.max(X, 2), X.shape[:-1] + (1,))
+
+        self.time_trace_map = norm_2d(np.array(self.M['time_trace_map'][0,:,:,:]))
+        self.integrated_count_map = self.time_trace_map.sum(axis=2)
+        self.time_array = np.array(self.M['time_array'])
+
+        self.hyperspec_data = self.time_trace_map[:,:,0:self.num_hist_chans]+1
+        self.display_image = self.integrated_count_map
+        self.spec_x_array = self.time_array[0:self.num_hist_chans]
+
+        self.compute_lifetime_map()
 
 
 if __name__ == '__main__':
