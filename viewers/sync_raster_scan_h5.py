@@ -62,7 +62,7 @@ class SyncRasterScanH5(DataBrowserView):
         elif chan == 'ctr1':
             im = M['ctr_map'][ii, jj, :,:, 1]
 
-        self.imview.setImage(im.T, autoLevels=self.settings['auto_level'], )
+        self.imview.setImage(im.T[:,::-1], autoLevels=self.settings['auto_level'], )
 
         if self.settings['auto_level']:
             self.imview.setLevels(*np.percentile(im, (1,99) ))
