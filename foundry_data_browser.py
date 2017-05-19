@@ -2,7 +2,7 @@ from __future__ import absolute_import, print_function
 from ScopeFoundry.data_browser import DataBrowser
 import logging
 
-logging.basicConfig(level=logging.DEBUG)#, filename='example.log', stream=sys.stdout)
+logging.basicConfig(level=logging.WARN)#, filename='example.log', stream=sys.stdout)
 logging.getLogger('traitlets').setLevel(logging.WARN)
 logging.getLogger('ipykernel.inprocess').setLevel(logging.WARN)
 logging.getLogger('LoggedQuantity').setLevel(logging.WARN)
