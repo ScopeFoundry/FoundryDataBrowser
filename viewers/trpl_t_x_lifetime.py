@@ -91,9 +91,9 @@ class TRPL_t_x_lifetime_NPZView(HyperSpectralBaseView):
         self.spec_plot.setLabel('left', 'Intensity', units='counts')
         self.spec_plot.setLabel('bottom', 'time', units='ns')
         
-        self.kk_start_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, name='kk_start')
-        self.kk_stop_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, name='kk_stop')
-        self.tau_x_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, name='tau_x')
+        self.kk_start_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, )#name='kk_start')
+        self.kk_stop_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, )#name='kk_stop')
+        self.tau_x_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, )#name='tau_x')
     
         self.spec_plot.addItem(self.kk_start_vline,  ignoreBounds=True)
         self.spec_plot.addItem(self.kk_stop_vline,  ignoreBounds=True)
