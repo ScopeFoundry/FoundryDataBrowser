@@ -10,7 +10,7 @@ class PicoHarpNPZView(DataBrowserView):
         
         self.ui = self.graph_layout = pg.GraphicsLayoutWidget()
         self.plot = self.graph_layout.addPlot()
-        self.plotdata = self.plot.plot()
+        self.plotdata = self.plot.plot(pen='r')
         self.plot.setLogMode(False, True)
         
     def on_change_data_filename(self, fname):

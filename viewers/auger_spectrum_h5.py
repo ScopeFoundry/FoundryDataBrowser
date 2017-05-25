@@ -23,9 +23,10 @@ class AugerSpectrumH5(DataBrowserView):
             self.H = self.dat['measurement/auger_spectrum']
             self.chan_data = self.H['chan_data']
             self.ke = self.H['ke']
-            self.dwell_time = self.H['settings.dwell']
-            self.chan_Hz = np.zeros(self.chan_data.shape())
+            self.dwell_time = self.H['settings'].attrs['dwell']
+            self.chan_Hz = np.zeros(self.chan_data.shape)
             self.chan_Hz = self.chan_data/self.dwell_time
+            self.update_display()
             
         except Exception as err:
             self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
