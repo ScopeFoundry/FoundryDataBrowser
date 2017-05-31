@@ -12,7 +12,8 @@ class HyperSpecCLH5View(HyperSpectralBaseView):
     def load_data(self, fname):    
         self.dat = h5py.File(fname)
         self.M = self.dat['measurement/hyperspec_cl']
-        self.spec_map = np.squeeze(self.M['spec_map'])
+        self.spec_map = self.M['spec_map'][0,0,:,:,:]
+        print(self.spec_map.shape)
         #self.integrated_count_map = self.dat['integrated_count_map']
 
         self.hyperspec_data = self.spec_map
