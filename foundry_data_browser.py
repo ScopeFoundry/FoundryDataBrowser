@@ -85,7 +85,10 @@ app.load_view(PowerScanNPZView(app))
 from FoundryDataBrowser.viewers.andor_ccd_readout_npz import AndorCCDReadoutNPZ
 app.load_view(AndorCCDReadoutNPZ(app))
 
+<<<<<<< HEAD
 from FoundryDataBrowser.viewers.hyperspec_cl_h5 import HyperSpecCLH5View
 app.load_view(HyperSpecCLH5View(app))
+=======
+>>>>>>> d23eddb51984f311015483594899062df7612379
 
 sys.exit(app.exec_())
