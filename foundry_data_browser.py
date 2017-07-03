@@ -17,8 +17,10 @@ app = DataBrowser(sys.argv)
 # views are loaded in order of more generic to more specific.
 ## ie the last loaded views are checked first for compatibility
 
-from FoundryDataBrowser.viewers.h5_tree import H5TreeView
+from FoundryDataBrowser.viewers.h5_tree import H5TreeView, H5TreeSearchView
 app.load_view(H5TreeView(app))
+app.load_view(H5TreeSearchView(app))
+
 
 from FoundryDataBrowser.viewers.gauss2d_fit_img import Gauss2DFitImgView, Gauss2DFitAPD_MCL_2dSlowScanView
 app.load_view(Gauss2DFitImgView(app))
