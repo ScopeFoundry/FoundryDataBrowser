@@ -5,6 +5,7 @@ import pyqtgraph as pg
 import pyqtgraph.dockarea as dockarea
 from qtpy import QtWidgets, QtGui
 from scipy import optimize
+from scipy.ndimage.filters import gaussian_filter
 
 import sys
 #sys.path.insert(0, '/home/dbdurham/foundry_scope/FoundryDataBrowser/viewers')
@@ -16,22 +17,18 @@ class AugerSpecMapView(DataBrowserView):
     
     def setup(self):
         
-        self.settings.New('equalize_detectors', dtype=bool)
-        self.settings.get_lq('equalize_detectors').add_listener(self.on_change_equalize_detectors)
+        self.settings.New('drift_correct_type', dtype=str, initial='Pairwise', choices=('Pairwise','Pairwise + Running Avg'))
         
         self.settings.New('drift_correct_adc_chan', dtype=int)
         
         self.settings.New('drift_correct', dtype=bool)
         self.settings.get_lq('drift_correct').add_listener(self.on_change_drift_correct)
         
-        self.settings.New('drift_correct_type', dtype=str, initial='Pairwise', choices=('Pairwise','Pairwise + Running Avg'))
+        self.settings.New('equalize_detectors', dtype=bool)
+        self.settings.get_lq('equalize_detectors').add_listener(self.update_current_auger_map)
         
-        self.settings.New('spectrum_over_ROI', dtype=bool)
-        self.settings.get_lq('spectrum_over_ROI').add_listener(self.on_change_spectrum_over_ROI)
-        
-        # Subtract the B section (ke1_start through ke1_stop) by a power law fit
-        self.settings.New('subtract_spectrum_background', dtype=bool)
-        self.settings.get_lq('subtract_spectrum_background').add_listener(self.on_change_subtract_spectrum_background)
+        self.settings.New('smooth_auger_sigma', dtype=float, vmin=0.0)
+        self.settings.get_lq('smooth_auger_sigma').add_listener(self.update_current_auger_map)
         
         self.settings.New('ke0_start', dtype=float)
         self.settings.New('ke0_stop', dtype=float)
@@ -41,6 +38,13 @@ class AugerSpecMapView(DataBrowserView):
         #Math mode now updates automatically on change
         self.settings.New('math_mode', dtype=str, initial='A')
         self.settings.get_lq('math_mode').add_listener(self.on_change_math_mode)
+        
+        self.settings.New('spectrum_over_ROI', dtype=bool)
+        self.settings.get_lq('spectrum_over_ROI').add_listener(self.on_change_spectrum_over_ROI)
+        
+        # Subtract the B section (ke1_start through ke1_stop) by a power law fit
+        self.settings.New('subtract_spectrum_background', dtype=bool)
+        self.settings.get_lq('subtract_spectrum_background').add_listener(self.on_change_subtract_spectrum_background)
         
         self.settings.New('mean_spectrum_only', dtype=bool, initial=False)
         self.settings.get_lq('mean_spectrum_only').add_listener(self.on_change_mean_spectrum_only)
@@ -147,8 +151,9 @@ class AugerSpecMapView(DataBrowserView):
 
     def on_change_data_filename(self, fname=None):
         try:
+            self.fname = fname
             print('opening hdf5 file...')
-            self.dat = h5py.File(fname, 'r')
+            self.dat = h5py.File(self.fname, 'r')
             print('hdf5 file loaded')
             self.H = self.dat['measurement/auger_sync_raster_scan/']
             h = self.h_settings = self.H['settings'].attrs
@@ -156,14 +161,15 @@ class AugerSpecMapView(DataBrowserView):
             print('adc map...')
             self.adc_map = np.array(self.H['adc_map'])
             self.settings.drift_correct_adc_chan.change_min_max(vmin=0, vmax=self.adc_map.shape[-1]-1)
-            print('ctr map...')
-            self.ctr_map = np.array(self.H['ctr_map'])
+            # ctr map is not very useful here...
+#             print('ctr map...')
+#             self.ctr_map = np.array(self.H['ctr_map'])
             print('auger map...')
             self.auger_map = np.array(self.H['auger_chan_map'], dtype=float)
             print('dataset arrays now available')
             time_per_px = self.auger_map[:,:,:,:,8:9]* 25e-9 # units of 25ns converted to seconds
             self.auger_map = self.auger_map[:,:,:,:,0:7]/time_per_px # auger map now in Hz
-            self.auger_sum_map = self.auger_map[:,:,:,:,0:7].mean(axis=4)
+#             self.auger_sum_map = self.auger_map[:,:,:,:,0:7].mean(axis=4)
             
             print('loading ke...')
             self.ke = np.array(self.H['ke'])
@@ -181,15 +187,7 @@ class AugerSpecMapView(DataBrowserView):
             # Close the h5 dataset, everything is stored in current memory now
             self.dat.close()
             
-            # Update Scale Bar
-            self.on_change_scalebar()
-            
-            # Calculate relative detector efficiencies
-            print('calculating detector efficiencies...')
-            self.calculate_detector_efficiencies()
-            if self.settings['equalize_detectors']:
-                self.auger_map /= self.det_eff
-            
+            # SEM image displays update
             print('setting SEM image stacks...')
             self.imview_sem0_stack.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=1), (0,2,1)))
             self.imview_sem1_stack.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=1), (0,2,1)))
@@ -197,11 +195,16 @@ class AugerSpecMapView(DataBrowserView):
             self.imview_sem0.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=(0,1))))
             self.imview_sem1.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=(0,1))))
             
-            print('calculating and updating spectrum...')
-            self.update_spectrum_display()
+            # Update Scale Bar
+            self.on_change_scalebar()
             
-            print('setting auger map...')
-            self.on_change_ke_settings()
+            # Calculate relative detector efficiencies
+            print('calculating detector efficiencies...')
+            self.calculate_detector_efficiencies()
+            
+            # Auger map and display update
+            print('updating auger map')
+            self.update_current_auger_map()
             
             #self.update_display()
         except Exception as err:
@@ -318,33 +321,31 @@ class AugerSpecMapView(DataBrowserView):
                 self.adc_map = imstack
                 self.auger_map = specstack
             
-            # Display
-            self.imview_sem0_stack.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=1), (0,2,1)))
-            self.imview_sem1_stack.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=1), (0,2,1)))
-            self.imview_sem0.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=(0,1))))
-            self.imview_sem1.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=(0,1))))
+        else: #reload original images and auger from h5
+            print('opening hdf5 file...')
+            dat = h5py.File(self.fname, 'r')
+            print('hdf5 file loaded')
+            self.H = dat['measurement/auger_sync_raster_scan/']
+            print('copying arrays into memory...')
+            print('adc map...')
+            self.adc_map = np.array(self.H['adc_map'])
+            print('auger map...')
+            self.auger_map = np.array(self.H['auger_chan_map'], dtype=float)
+            print('dataset arrays now available')
+            time_per_px = self.auger_map[:,:,:,:,8:9]* 25e-9 # units of 25ns converted to seconds
+            self.auger_map = self.auger_map[:,:,:,:,0:7]/time_per_px # auger map now in Hz
             
-            self.update_spectrum_display()
+            dat.close()
             
-            self.on_change_ke_settings()
+        # Display
+        self.imview_sem0_stack.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=1), (0,2,1)))
+        self.imview_sem1_stack.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=1), (0,2,1)))
+        self.imview_sem0.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=(0,1))))
+        self.imview_sem1.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=(0,1))))
         
-        
-    def on_change_equalize_detectors(self):
-        if self.settings['equalize_detectors']:
-            self.auger_map /= self.det_eff
-        else:
-            self.auger_map *= self.det_eff
-        
-        # Update spectrum displays
-        self.update_spectrum_display()
-        
-        # Update maps
-        self.on_change_ke_settings()
-        
-        pass
+        self.update_current_auger_map()
     
     def on_change_ke_settings(self):
-        
         
         print ("on_change_ke_settings")
         S = self.settings
@@ -355,15 +356,20 @@ class AugerSpecMapView(DataBrowserView):
         # KE of shape n_chans[7] x n_frames
         # auger map shape: 
         # n_frames (0), n_subfames(1), n_y(2), n_x(3), n_chans(4)
-    
-        print(ke_map0.shape, ke_map0.sum())
-        auger_ke0_imgs = np.transpose(self.auger_map, (4,0,1,2,3))[ke_map0,0,:,:]
-        auger_ke1_imgs = np.transpose(self.auger_map, (4,0,1,2,3))[ke_map1,0,:,:]
+        
+        if ke_map0.sum() == 0:
+            self.A = np.zeros(self.current_auger_map.shape[2:4])
+        else:
+            auger_ke0_imgs = np.transpose(self.current_auger_map, (4,0,1,2,3))[ke_map0,0,:,:]
+            self.A = auger_ke0_imgs.mean(axis=0)
+        
+        if ke_map1.sum() == 0:
+            self.B = np.zeros(self.current_auger_map.shape[2:4])
+        else:
+            auger_ke1_imgs = np.transpose(self.current_auger_map, (4,0,1,2,3))[ke_map1,0,:,:]
+            self.B = auger_ke1_imgs.mean(axis=0)
 
-        print(auger_ke0_imgs.shape, auger_ke1_imgs.shape)
         # Stored these arrays in object so could be updated/manipulated on demand more easily
-        self.A = auger_ke0_imgs.mean(axis=0)
-        self.B = auger_ke1_imgs.mean(axis=0)
         
         self.imview_auger.setImage(self.compute_image(self.A,self.B))
         
@@ -478,11 +484,11 @@ class AugerSpecMapView(DataBrowserView):
         
     def compute_total_spectrum0(self):
         from scipy import interpolate
-        sum_Hz = self.auger_map[:,:,:,:,0].mean(axis=(1,2,3))
+        sum_Hz = self.current_auger_map[:,:,:,:,0].mean(axis=(1,2,3))
         x0 = self.ke[0,:]
         for i in range(1,7):
             x = self.ke[i,:]
-            y=self.auger_map[:,:,:,:,i].mean(axis=(1,2,3))
+            y=self.current_auger_map[:,:,:,:,i].mean(axis=(1,2,3))
             ff = interpolate.interp1d(x,y,bounds_error=False)
             sum_Hz += ff(x0)
         return sum_Hz/7.0
@@ -494,7 +500,7 @@ class AugerSpecMapView(DataBrowserView):
         for i in range(0,7):
             x = self.ke[i,:]
             if data==None:
-                y = self.auger_map[:,:,:,:,i].mean(axis=(1,2,3))
+                y = self.current_auger_map[:,:,:,:,i].mean(axis=(1,2,3))
             else:
                 y = data[:,i]
             ff = interpolate.interp1d(x,y,bounds_error=False)
@@ -530,6 +536,27 @@ class AugerSpecMapView(DataBrowserView):
         
         return x, y-fit_data
     
+    def update_current_auger_map(self):
+        # Initialize current auger map dataset
+        self.current_auger_map = np.zeros(self.auger_map.shape)
+        self.current_auger_map[:] = self.auger_map
+        
+        # Equalize detectors
+        if self.settings['equalize_detectors']:
+            self.current_auger_map /= self.det_eff
+                
+        # Smoothing
+        sigma = self.settings['smooth_auger_sigma']
+        if sigma > 0.0:
+            self.current_auger_map = gaussian_filter(self.current_auger_map, (0,0,sigma,sigma,0))
+        
+        # Background subtraction
+        
+        # Update displays
+        self.update_spectrum_display()
+        self.on_change_ke_settings()
+        
+    
     def update_spectrum_display(self):
         if self.settings['spectrum_over_ROI']:
 #             roi_slice, roi_tr = self.poly_roi.getArraySlice(self.auger_map, self.im_auger, axes=(3,2))
@@ -537,7 +564,7 @@ class AugerSpecMapView(DataBrowserView):
 #             print('Local Positions', self.poly_roi.getLocalHandlePositions())
 #             print('Scene Positions', self.poly_roi.getSceneHandlePositions())
 #                    
-            roi_auger_map = self.poly_roi.getArrayRegion(np.swapaxes(self.auger_map, 2, 3), self.im_auger, axes=(2,3))
+            roi_auger_map = self.poly_roi.getArrayRegion(np.swapaxes(self.current_auger_map, 2, 3), self.im_auger, axes=(2,3))
             roi_auger_masked = np.ma.array(roi_auger_map, mask = roi_auger_map == 0)
             roi_auger_mean = roi_auger_masked.mean(axis=(1,2,3))
             
@@ -562,6 +589,6 @@ class AugerSpecMapView(DataBrowserView):
                 self.total_plotline.setData(*self.compute_total_spectrum())
                 for ii in range(7):
                     self.chan_plotlines[ii].setData(self.ke[ii,:],
-                                                    self.auger_map[:,:,:,:,ii].mean(axis=(1,2,3)))
+                                                    self.current_auger_map[:,:,:,:,ii].mean(axis=(1,2,3)))
         
 
