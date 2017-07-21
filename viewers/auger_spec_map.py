@@ -27,6 +27,9 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.New('equalize_detectors', dtype=bool)
         self.settings.get_lq('equalize_detectors').add_listener(self.update_current_auger_map)
         
+        self.settings.New('normalize_by_pass_energy', dtype=bool)
+        self.settings.get_lq('normalize_by_pass_energy').add_listener(self.update_current_auger_map)
+        
         self.settings.New('smooth_auger_sigma', dtype=float, vmin=0.0)
         self.settings.get_lq('smooth_auger_sigma').add_listener(self.update_current_auger_map)
         
@@ -43,8 +46,8 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.get_lq('spectrum_over_ROI').add_listener(self.on_change_spectrum_over_ROI)
         
         # Subtract the B section (ke1_start through ke1_stop) by a power law fit
-        self.settings.New('subtract_spectrum_background', dtype=bool)
-        self.settings.get_lq('subtract_spectrum_background').add_listener(self.on_change_subtract_spectrum_background)
+        self.settings.New('subtract_ke1_powerlaw', dtype=bool)
+        self.settings.get_lq('subtract_ke1_powerlaw').add_listener(self.on_change_subtract_ke1_powerlaw)
         
         self.settings.New('mean_spectrum_only', dtype=bool, initial=False)
         self.settings.get_lq('mean_spectrum_only').add_listener(self.on_change_mean_spectrum_only)
@@ -58,39 +61,7 @@ class AugerSpecMapView(DataBrowserView):
         
         self.ui = self.dockarea = dockarea.DockArea()
         
-        self.dockarea.addDock(name='Settings', widget=self.settings.New_UI())
-        
-        # Spectrum plot
-        self.graph_layout = pg.GraphicsLayoutWidget()        
-        self.spec_plot = self.graph_layout.addPlot()
-        self.legend = self.spec_plot.addLegend()
-        self.spec_plot.setLabel('bottom','Electron Kinetic Energy')
-        self.spec_plot.setLabel('left','Intensity (Hz)')
-        #self.rect_plotdata = self.spec_plot.plot()
-        #self.point_plotdata = self.spec_plot.plot(pen=(0,9))
-        
-        self.dockarea.addDock(name='Spec Plot', widget=self.graph_layout)
-
-        self.lr0 = pg.LinearRegionItem(values=[0,1], brush=QtGui.QBrush(QtGui.QColor(0, 0, 255, 50)))
-        self.lr1 = pg.LinearRegionItem(values=[2,3], brush=QtGui.QBrush(QtGui.QColor(255, 0, 0, 50)))
-        
-        for lr in (self.lr0, self.lr1):
-            lr.setZValue(10)
-            self.spec_plot.addItem(lr, ignoreBounds=True)
-            lr.sigRegionChangeFinished.connect(self.on_change_regions)
-            
-        self.chan_plotlines = []
-        # define plotline color scheme going from orange -> yellow -> green
-        R = np.linspace(220,0,4)
-        G = np.linspace(220,100,4)
-        
-        plot_colors = [(R[0], G[0], 0), (R[1], G[0], 0), (R[0], G[1], 0), 
-                       (R[2], G[0], 0), (R[0], G[2], 0), (R[3], G[0], 100),
-                       (R[0], G[3], 0)]
-        for ii in range(7):
-            self.chan_plotlines.append(
-                self.spec_plot.plot([0], pen=pg.mkPen(color=plot_colors[ii],width=2), name='chan ' + str(ii), width=20))
-        self.total_plotline = self.spec_plot.plot(pen=pg.mkPen(color=(0,0,0), width=3), name='mean')
+        self.dockarea.addDock(name='Settings', position='left', widget=self.settings.New_UI())
         
             
         # Images
@@ -100,7 +71,7 @@ class AugerSpecMapView(DataBrowserView):
         
         self.imview_sem1_stack = pg.ImageView()
         self.imview_sem1_stack.getView().invertY(False) # lower left origin
-        self.imdockB_stack = self.dockarea.addDock(name='InLens Image Stack', widget=self.imview_sem1_stack)
+        self.imdockB_stack = self.dockarea.addDock(name='InLens Image Stack', position='right', widget=self.imview_sem1_stack)
         
         self.imview_sem0 = pg.ImageView()
         self.imview_sem0.getView().invertY(False) # lower left origin
@@ -145,6 +116,38 @@ class AugerSpecMapView(DataBrowserView):
         scale_handles[1].currentPen.setColor(pg.mkColor(255,255,255,0))
         # This disables the middle handle that allows line width change
         scale_handles[2].setOpacity(0.0)
+        
+        # Spectrum plot
+        self.graph_layout = pg.GraphicsLayoutWidget()        
+        self.spec_plot = self.graph_layout.addPlot()
+        self.legend = self.spec_plot.addLegend()
+        self.spec_plot.setLabel('bottom','Electron Kinetic Energy')
+        self.spec_plot.setLabel('left','Intensity (Hz)')
+        #self.rect_plotdata = self.spec_plot.plot()
+        #self.point_plotdata = self.spec_plot.plot(pen=(0,9))
+        
+        self.dockarea.addDock(name='Spec Plot',position='bottom', widget=self.graph_layout)
+
+        self.lr0 = pg.LinearRegionItem(values=[0,1], brush=QtGui.QBrush(QtGui.QColor(0, 0, 255, 50)))
+        self.lr1 = pg.LinearRegionItem(values=[2,3], brush=QtGui.QBrush(QtGui.QColor(255, 0, 0, 50)))
+        
+        for lr in (self.lr0, self.lr1):
+            lr.setZValue(10)
+            self.spec_plot.addItem(lr, ignoreBounds=True)
+            lr.sigRegionChangeFinished.connect(self.on_change_regions)
+            
+        self.chan_plotlines = []
+        # define plotline color scheme going from orange -> yellow -> green
+        R = np.linspace(220,0,4)
+        G = np.linspace(220,100,4)
+        
+        plot_colors = [(R[0], G[0], 0), (R[1], G[0], 0), (R[0], G[1], 0), 
+                       (R[2], G[0], 0), (R[0], G[2], 0), (R[3], G[0], 100),
+                       (R[0], G[3], 0)]
+        for ii in range(7):
+            self.chan_plotlines.append(
+                self.spec_plot.plot([0], pen=pg.mkPen(color=plot_colors[ii],width=2), name='chan ' + str(ii), width=20))
+        self.total_plotline = self.spec_plot.plot(pen=pg.mkPen(color=(0,0,0), width=3), name='mean')
 
     def is_file_supported(self, fname):
         return "auger_sync_raster_scan.h5" in fname
@@ -156,7 +159,7 @@ class AugerSpecMapView(DataBrowserView):
             self.dat = h5py.File(self.fname, 'r')
             print('hdf5 file loaded')
             self.H = self.dat['measurement/auger_sync_raster_scan/']
-            h = self.h_settings = self.H['settings'].attrs
+            h = self.h_settings = dict(self.H['settings'].attrs)
             print('copying arrays into memory...')
             print('adc map...')
             self.adc_map = np.array(self.H['adc_map'])
@@ -425,7 +428,7 @@ class AugerSpecMapView(DataBrowserView):
     def on_change_spectrum_over_ROI(self):
         self.update_spectrum_display()
     
-    def on_change_subtract_spectrum_background(self):
+    def on_change_subtract_ke1_powerlaw(self):
         self.update_spectrum_display()
         
     def on_change_mean_spectrum_only(self):
@@ -544,7 +547,20 @@ class AugerSpecMapView(DataBrowserView):
         # Equalize detectors
         if self.settings['equalize_detectors']:
             self.current_auger_map /= self.det_eff
-                
+        
+        #normalize counts by spec resolution, Hz/eV
+        
+        if self.settings['normalize_by_pass_energy']:
+            self.spec_plot.setLabel('left','Intensity (Hz/eV)')
+            spec_dispersion = 0.02  #Omicron SCA per-channel resolution/pass energy
+            if self.h_settings['CAE_mode']:
+                self.current_auger_map /= spec_dispersion * self.h_settings['pass_energy']
+            else:
+                #in CRR mode pass energy is KE / crr_ratio
+                self.current_auger_map *= self.h_settings['crr_ratio'] / (spec_dispersion * self.ke)
+        else:
+            self.spec_plot.setLabel('left','Intensity (Hz)')
+        
         # Smoothing
         sigma = self.settings['smooth_auger_sigma']
         if sigma > 0.0:
@@ -569,7 +585,7 @@ class AugerSpecMapView(DataBrowserView):
             roi_auger_mean = roi_auger_masked.mean(axis=(1,2,3))
             
             #print(mapped_coords)
-            if self.settings['subtract_spectrum_background']:
+            if self.settings['subtract_ke1_powerlaw']:
                 plot_data = self.subtract_background(*self.compute_total_spectrum(data = roi_auger_mean))
                 self.total_plotline.setData(*plot_data)
                 for ii in range(7):
@@ -580,7 +596,7 @@ class AugerSpecMapView(DataBrowserView):
                     self.chan_plotlines[ii].setData(self.ke[ii,:], roi_auger_mean[:,ii])                                                
             
         else:
-            if self.settings['subtract_spectrum_background']:
+            if self.settings['subtract_ke1_powerlaw']:
                 plot_data = self.subtract_background(*self.compute_total_spectrum())
                 self.total_plotline.setData(*plot_data)
                 for ii in range(7):
