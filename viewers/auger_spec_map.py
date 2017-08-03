@@ -6,6 +6,8 @@ import pyqtgraph.dockarea as dockarea
 from qtpy import QtWidgets, QtGui
 from scipy import optimize
 from scipy.ndimage.filters import gaussian_filter
+from scipy.signal import savgol_filter
+from scipy import interpolate
 
 import sys
 #sys.path.insert(0, '/home/dbdurham/foundry_scope/FoundryDataBrowser/viewers')
@@ -25,18 +27,30 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.get_lq('drift_correct').add_listener(self.on_change_drift_correct)
         
         self.settings.New('equalize_detectors', dtype=bool)
-        self.settings.get_lq('equalize_detectors').add_listener(self.update_current_auger_map)
-        
         self.settings.New('normalize_by_pass_energy', dtype=bool)
-        self.settings.get_lq('normalize_by_pass_energy').add_listener(self.update_current_auger_map)
+        self.settings.New('spatial_smooth_sigma', dtype=float, vmin=0.0)        
+        self.settings.New('spectral_smooth_type', dtype=str, choices=['None', 'Gaussian', 'Savitzky-Golay'], initial='None')
+        self.settings.New('spectral_smooth_gauss_sigma', dtype=float, vmin=0.0)
+        self.settings.New('spectral_smooth_savgol_width', dtype=int, vmin=0)
+        self.settings.New('spectral_smooth_savgol_order', dtype=int, vmin=0, initial=2)
         
-        self.settings.New('smooth_auger_sigma', dtype=float, vmin=0.0)
-        self.settings.get_lq('smooth_auger_sigma').add_listener(self.update_current_auger_map)
+        auger_lqs = ['equalize_detectors', 'normalize_by_pass_energy', 
+                     'spatial_smooth_sigma','spectral_smooth_type',
+                     'spectral_smooth_gauss_sigma','spectral_smooth_savgol_width',
+                     'spectral_smooth_savgol_order']
+        
+        # Link all the auger spectrum lqs to the update current auger map listener
+        for alq in auger_lqs:
+            self.settings.get_lq(alq).add_listener(self.update_current_auger_map)
         
         self.settings.New('ke0_start', dtype=float)
         self.settings.New('ke0_stop', dtype=float)
         self.settings.New('ke1_start', dtype=float)
         self.settings.New('ke1_stop', dtype=float)
+        
+        # Subtract the B section (ke1_start through ke1_stop) by a power law fit
+        self.settings.New('subtract_ke1', dtype=str, choices=['None','Linear','Power Law'], initial='None')
+        self.settings.get_lq('subtract_ke1').add_listener(self.update_current_auger_map)
         
         #Math mode now updates automatically on change
         self.settings.New('math_mode', dtype=str, initial='A')
@@ -44,10 +58,6 @@ class AugerSpecMapView(DataBrowserView):
         
         self.settings.New('spectrum_over_ROI', dtype=bool)
         self.settings.get_lq('spectrum_over_ROI').add_listener(self.on_change_spectrum_over_ROI)
-        
-        # Subtract the B section (ke1_start through ke1_stop) by a power law fit
-        self.settings.New('subtract_ke1_powerlaw', dtype=bool)
-        self.settings.get_lq('subtract_ke1_powerlaw').add_listener(self.on_change_subtract_ke1_powerlaw)
         
         self.settings.New('mean_spectrum_only', dtype=bool, initial=False)
         self.settings.get_lq('mean_spectrum_only').add_listener(self.on_change_mean_spectrum_only)
@@ -467,7 +477,7 @@ class AugerSpecMapView(DataBrowserView):
         
         ke_step = self.ke[0,1] - self.ke[0,0]
         
-        ke_map = (ke_rest > ke_med[0] - (ke_step-0.00001)) * (ke_rest < ke_med[-1] + (ke_step-0.00001))
+        ke_map = (ke_rest > ke_med[0] - 0.00001) * (ke_rest < ke_med[-1] + (ke_step-0.00001))
         ke_sliced = ke_rest[ke_map]
         ke_sliced = ke_sliced.reshape((num_chans-1, len(ke_sliced)//(num_chans-1)))
         data_sliced = data_rest[ke_map].reshape((num_chans-1, ke_sliced.shape[1]))
@@ -498,8 +508,9 @@ class AugerSpecMapView(DataBrowserView):
 
     def compute_total_spectrum(self, data = None):
         from scipy import interpolate
-        total_spec = np.zeros(100, dtype=float)
-        ke_interp = np.linspace(self.ke.min(), self.ke.max(), 100, dtype=float)
+        n_frames = self.ke.shape[1]
+        total_spec = np.zeros(n_frames*2, dtype=float)
+        ke_interp = np.linspace(self.ke.min(), self.ke.max(), n_frames*2, dtype=float)
         for i in range(0,7):
             x = self.ke[i,:]
             if data==None:
@@ -509,35 +520,6 @@ class AugerSpecMapView(DataBrowserView):
             ff = interpolate.interp1d(x,y,bounds_error=False)
             total_spec += ff(ke_interp)
         return ke_interp, (total_spec/7.0)
-    
-    def subtract_background(self, x, y):
-        # Fit a power law to the background
-        x_min = self.settings['ke1_start']
-        x_max = self.settings['ke1_stop']
-        fit_map = (x > x_min) * (x < x_max)
-        
-        
-        x_to_fit = x[fit_map]
-        y_to_fit = y[fit_map]
-        logx = np.log10(x_to_fit)
-        logy = np.log10(y_to_fit)
-        
-        # define our (line) fitting function
-        fitfunc = lambda p, x: p[0] + p[1] * x
-        errfunc = lambda p, x, y: (y - fitfunc(p, x))
-        
-        # Calculate coefficient guess
-        A = np.max(y_to_fit) * x_to_fit[np.argmax(y_to_fit)]
-        pinit = [np.log10(A), -1.0]
-        out = optimize.leastsq(errfunc, pinit,
-                               args=(logx, logy), full_output=1)
-        
-        pfinal = out[0]
-        index = pfinal[1]
-        amp = 10.0**pfinal[0]
-        fit_data = amp * x ** index
-        
-        return x, y-fit_data
     
     def update_current_auger_map(self):
         # Initialize current auger map dataset
@@ -561,12 +543,55 @@ class AugerSpecMapView(DataBrowserView):
         else:
             self.spec_plot.setLabel('left','Intensity (Hz)')
         
-        # Smoothing
-        sigma = self.settings['smooth_auger_sigma']
-        if sigma > 0.0:
-            self.current_auger_map = gaussian_filter(self.current_auger_map, (0,0,sigma,sigma,0))
-        
-        # Background subtraction
+        # Smoothing (presently performed for individual detectors)
+        # FIX: MAY NEED A SUM MAP THAT ALIGNS DETECTOR CHANNELS AND SUMS
+        sigma_xy = self.settings['spatial_smooth_sigma'] # In terms of px?
+        sigma_spec = self.settings['spectral_smooth_gauss_sigma'] # In terms of frames?
+        width_spec = self.settings['spectral_smooth_savgol_width'] # In terms of frames?
+        order_spec = self.settings['spectral_smooth_savgol_order']
+
+        # Always do spatial smoothing first
+        if sigma_xy > 0.0:
+            print('spatial smoothing...')
+            self.current_auger_map = gaussian_filter(self.current_auger_map, (0,0,sigma_xy,sigma_xy,0))
+            
+        if self.settings['spectral_smooth_type'] == 'Gaussian':
+            print('spectral smoothing...')
+            self.current_auger_map = gaussian_filter(self.current_auger_map, (sigma_spec,0,0,0,0))
+        elif self.settings['spectral_smooth_type'] == 'Savitzky-Golay':
+            # Currently always uses 4th order polynomial to fit
+            print('spectral smoothing...')
+            self.current_auger_map = savgol_filter(self.current_auger_map, 1 + 2*width_spec, order_spec, axis=0)
+ 
+        # Background subtraction (implemented detector-wise currently)
+        # NOTE: INSUFFICIENT SPATIAL SMOOTHING MAY GIVE INACCURATE OR EVEN INF RESULTS
+        if not(self.settings['subtract_ke1'] == 'None'):
+            print('Performing background subtraction...')
+            for iDet in range(7):
+                # Fit a power law to the background
+                # get background range
+                ke_min = self.settings['ke1_start']
+                ke_max = self.settings['ke1_stop']
+                fit_map = (self.ke[iDet] > ke_min) * (self.ke[iDet] < ke_max)
+                ke_to_fit = self.ke[iDet,fit_map]
+                spec_to_fit = self.current_auger_map[fit_map,0,:,:,iDet].transpose(1,2,0)
+                
+                if self.settings['subtract_ke1'] == 'Power Law':
+                    # Fit power law
+                    A, m = self.fit_powerlaw(ke_to_fit, spec_to_fit)
+                    ke_mat = np.tile(self.ke[iDet], (spec_to_fit.shape[0],spec_to_fit.shape[1],1)).transpose(2,0,1)
+                    A = np.tile(A, (self.ke.shape[1], 1, 1))
+                    m = np.tile(m, (self.ke.shape[1], 1, 1))
+                    bg = A * ke_mat**m
+                elif self.settings['subtract_ke1'] == 'Linear':
+                    # Fit line
+                    m, b = self.fit_line(ke_to_fit, spec_to_fit)
+                    ke_mat = np.tile(self.ke[iDet], (spec_to_fit.shape[0],spec_to_fit.shape[1],1)).transpose(2,0,1)
+                    m = np.tile(m, (self.ke.shape[1], 1, 1))
+                    b = np.tile(b, (self.ke.shape[1], 1, 1))
+                    bg = m * ke_mat + b
+                
+                self.current_auger_map[:,0,:,:,iDet] -= bg
         
         # Update displays
         self.update_spectrum_display()
@@ -585,26 +610,76 @@ class AugerSpecMapView(DataBrowserView):
             roi_auger_mean = roi_auger_masked.mean(axis=(1,2,3))
             
             #print(mapped_coords)
-            if self.settings['subtract_ke1_powerlaw']:
-                plot_data = self.subtract_background(*self.compute_total_spectrum(data = roi_auger_mean))
-                self.total_plotline.setData(*plot_data)
-                for ii in range(7):
-                    self.chan_plotlines[ii].setData([],[])
-            else:
-                self.total_plotline.setData(*self.compute_total_spectrum(data = roi_auger_mean))
-                for ii in range(7):
-                    self.chan_plotlines[ii].setData(self.ke[ii,:], roi_auger_mean[:,ii])                                                
+#             if self.settings['subtract_ke1_powerlaw']:
+#                 plot_data = self.subtract_background(*self.compute_total_spectrum(data = roi_auger_mean))
+#                 self.total_plotline.setData(*plot_data)
+#                 for ii in range(7):
+#                     self.chan_plotlines[ii].setData([],[])
+#             else:
+            self.total_plotline.setData(*self.compute_total_spectrum(data = roi_auger_mean))
+            for ii in range(7):
+                self.chan_plotlines[ii].setData(self.ke[ii,:], roi_auger_mean[:,ii])                                                
             
         else:
-            if self.settings['subtract_ke1_powerlaw']:
-                plot_data = self.subtract_background(*self.compute_total_spectrum())
-                self.total_plotline.setData(*plot_data)
-                for ii in range(7):
-                    self.chan_plotlines[ii].setData([],[])
-            else:
-                self.total_plotline.setData(*self.compute_total_spectrum())
-                for ii in range(7):
-                    self.chan_plotlines[ii].setData(self.ke[ii,:],
-                                                    self.current_auger_map[:,:,:,:,ii].mean(axis=(1,2,3)))
-        
+#             if self.settings['subtract_ke1_powerlaw']:
+#                 plot_data = self.subtract_background(*self.compute_total_spectrum())
+#                 self.total_plotline.setData(*plot_data)
+#                 for ii in range(7):
+#                     self.chan_plotlines[ii].setData([],[])
+#             else:
+            self.total_plotline.setData(*self.compute_total_spectrum())
+            for ii in range(7):
+                self.chan_plotlines[ii].setData(self.ke[ii,:],
+                                                self.current_auger_map[:,:,:,:,ii].mean(axis=(1,2,3)))
 
+    def fit_powerlaw(self, x, y):
+        # Takes x data (1d array) and y data (Nd array)
+        # last dimension of y array is interpolation dimension
+        # Returns coefficients A,m for the powerlaw y = Ax^m that provide least squares best fit
+        # Solved algebraically for speed
+        # NOTE: This form goes to zero in correct limits for either primary or secondary electron backgrounds, but not combined
+        # e.g. secondary background has m < 0 such that y -> 0 as x -> inf
+        # e.g. primary background ahs m > 0 such that y -> 0 as x -> 0 
+        
+        # First, must interpolate data to equally spaced points in log space
+        # Currently, interpolation is linear
+        
+        f_interp = interpolate.interp1d(x, y)
+        x_lsp = 10**np.linspace(np.log10(x[0]), np.log10(x[-1]), len(x)) # log equally spaced x
+        x_lsp[0] = x[0] # This prevents 10^ log10 operation from moving x values slightly out of interpolation range
+        x_lsp[-1] = x[-1]
+        y_lsp = f_interp(x_lsp)
+        
+        # Then, solve linear least squares matrix equations for A, m
+        # XB = y where X is a matrix based on x data, B is (log(A),m), and y is the y data
+        # In this case, equation is generated using y_i = 1*(log(A)) + x_i * m where x and y are log(x) and log(y)
+        
+        # Generate X matrix (X_i = [1, x_i])
+        X = np.ones((len(x_lsp), 2))
+        X[:,1] = np.log10(x_lsp[:])
+        
+        # Solve "normal equations" for B that minimizes least sq
+        # B = C*y = {((X^T)X)^(-1) * (X^T)} y
+        
+        C = np.linalg.inv(X.T.dot(X)).dot(X.T)
+        B = C.dot(np.log10(np.swapaxes(y_lsp, -1, 1)))
+        return 10**B[0], B[1]
+    
+    def fit_line(self, x, y):
+        # Takes x data (1d array) and y data (Nd array)
+        # last dimension of y array is fit dimension
+        # Solve linear least squares matrix equations for m, b of y = mx + b
+        # Returns m, b
+        # y_i = 1*b + x_i * m
+        
+        # Generate X matrix (X_i = [1, x_i])
+        X = np.ones((len(x), 2))
+        X[:,1] = x[:]
+        
+        # Solve "normal equations" for B that minimizes least sq
+        # B = C*y = {((X^T)X)^(-1) * (X^T)} y
+        
+        C = np.linalg.inv(X.T.dot(X)).dot(X.T)
+        B = C.dot(np.swapaxes(y, -1, 1))
+        return B[1], B[0]
+        
