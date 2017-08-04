@@ -5,7 +5,7 @@ import pyqtgraph as pg
 import pyqtgraph.dockarea as dockarea
 from qtpy import QtWidgets, QtGui
 from scipy import optimize
-from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage.filters import gaussian_filter, convolve1d
 from scipy.signal import savgol_filter
 from scipy import interpolate
 
@@ -34,10 +34,16 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.New('spectral_smooth_savgol_width', dtype=int, vmin=0)
         self.settings.New('spectral_smooth_savgol_order', dtype=int, vmin=0, initial=2)
         
+        # Assume same tougaard parameters everywhere
+        self.settings.New('subtract_tougaard', dtype=bool)
+        self.settings.New('R_loss', dtype=float)
+        self.settings.New('E_loss', dtype=float)
+        
         auger_lqs = ['equalize_detectors', 'normalize_by_pass_energy', 
                      'spatial_smooth_sigma','spectral_smooth_type',
                      'spectral_smooth_gauss_sigma','spectral_smooth_savgol_width',
-                     'spectral_smooth_savgol_order']
+                     'spectral_smooth_savgol_order', 'subtract_tougaard',
+                     'R_loss', 'E_loss']
         
         # Link all the auger spectrum lqs to the update current auger map listener
         for alq in auger_lqs:
@@ -48,6 +54,9 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.New('ke1_start', dtype=float)
         self.settings.New('ke1_stop', dtype=float)
         
+        for lqname in ['ke0_start', 'ke0_stop', 'ke1_start', 'ke1_stop']:
+            self.settings.get_lq(lqname).add_listener(self.on_change_ke_settings)
+        
         # Subtract the B section (ke1_start through ke1_stop) by a power law fit
         self.settings.New('subtract_ke1', dtype=str, choices=['None','Linear','Power Law'], initial='None')
         self.settings.get_lq('subtract_ke1').add_listener(self.update_current_auger_map)
@@ -56,14 +65,14 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.New('math_mode', dtype=str, initial='A')
         self.settings.get_lq('math_mode').add_listener(self.on_change_math_mode)
         
+        self.settings.New('AB_mode', dtype=str, choices=['Mean', 'Integral'])
+        self.settings.get_lq('AB_mode').add_listener(self.on_change_ke_settings)
+        
         self.settings.New('spectrum_over_ROI', dtype=bool)
         self.settings.get_lq('spectrum_over_ROI').add_listener(self.on_change_spectrum_over_ROI)
         
         self.settings.New('mean_spectrum_only', dtype=bool, initial=False)
         self.settings.get_lq('mean_spectrum_only').add_listener(self.on_change_mean_spectrum_only)
-        
-        for lqname in ['ke0_start', 'ke0_stop', 'ke1_start', 'ke1_stop']:
-            self.settings.get_lq(lqname).add_listener(self.on_change_ke_settings)
         
         # Make plots on white background
         pg.setConfigOption('background', 'w')
@@ -71,7 +80,14 @@ class AugerSpecMapView(DataBrowserView):
         
         self.ui = self.dockarea = dockarea.DockArea()
         
-        self.dockarea.addDock(name='Settings', position='left', widget=self.settings.New_UI())
+        # List of settings to include in preprocessing tab
+        names_prep = ['drift_correct_type','drift_correct_adc_chan', 'drift_correct']
+        
+        self.setdock = self.dockarea.addDock(name='Settings', position='left', 
+                              widget=self.settings.New_UI(exclude=names_prep))
+        self.prepdock = self.dockarea.addDock(name='Preprocess', position='left',
+                              widget=self.settings.New_UI(include=names_prep))
+        self.dockarea.moveDock(self.setdock, 'above', self.prepdock)
         
             
         # Images
@@ -370,17 +386,29 @@ class AugerSpecMapView(DataBrowserView):
         # auger map shape: 
         # n_frames (0), n_subfames(1), n_y(2), n_x(3), n_chans(4)
         
+        
+        # FIX: integral assumes all measured points count evenly towards integral, 
+        # but depending on dispersion they may be clustered which calls into question
+        # the validity of this "integral" approximation
         if ke_map0.sum() == 0:
             self.A = np.zeros(self.current_auger_map.shape[2:4])
         else:
             auger_ke0_imgs = np.transpose(self.current_auger_map, (4,0,1,2,3))[ke_map0,0,:,:]
-            self.A = auger_ke0_imgs.mean(axis=0)
+            if self.settings['AB_mode'] == 'Mean':
+                self.A = auger_ke0_imgs.mean(axis=0)
+            elif self.settings['AB_mode'] == 'Integral':
+                deltaE = (S['ke0_stop'] - S['ke0_start'])/ke_map0.sum()
+                self.A = auger_ke0_imgs.sum(axis=0) * deltaE
         
         if ke_map1.sum() == 0:
             self.B = np.zeros(self.current_auger_map.shape[2:4])
         else:
             auger_ke1_imgs = np.transpose(self.current_auger_map, (4,0,1,2,3))[ke_map1,0,:,:]
-            self.B = auger_ke1_imgs.mean(axis=0)
+            if self.settings['AB_mode'] == 'Mean':
+                self.B = auger_ke1_imgs.mean(axis=0)
+            elif self.settings['AB_mode'] == 'Integral':
+                deltaE = (S['ke0_stop'] - S['ke0_start'])/ke_map1.sum()
+                self.B = auger_ke1_imgs.sum(axis=0) * deltaE
 
         # Stored these arrays in object so could be updated/manipulated on demand more easily
         
@@ -592,6 +620,16 @@ class AugerSpecMapView(DataBrowserView):
                     bg = m * ke_mat + b
                 
                 self.current_auger_map[:,0,:,:,iDet] -= bg
+        
+        # For now, apply to the detector channels individually
+        if self.settings['subtract_tougaard']:
+            R_loss = self.settings['R_loss']
+            E_loss = self.settings['E_loss']
+            dE = self.ke[0,1] - self.ke[0,0]
+            kernel_size = 200
+            ke_kernel = np.arange(0, kernel_size*dE, abs(dE))
+            K_toug = (8.0/np.pi**2)*R_loss*E_loss**2 * ke_kernel / ((2.0*E_loss/np.pi)**2 + ke_kernel**2)**2
+            self.current_auger_map -= convolve1d(self.current_auger_map, K_toug[::-1], axis=0)
         
         # Update displays
         self.update_spectrum_display()
