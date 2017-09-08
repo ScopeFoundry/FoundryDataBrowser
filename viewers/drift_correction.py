@@ -167,3 +167,58 @@ def shift_subpixel(I, dx=0, dy=0):
     I_shift = np.fft.ifft2(G*array_exp)
     
     return I_shift
+
+def compute_pairwise_shifts(imstack):
+    # Calculates the pairwise shifts for images in a stack of format [frame, x, y].
+    # returns shift vector as [y, x] for each pair, a 2 x N-1 array where N is num_frames
+    
+    scan_shape = imstack.shape
+    num_pairs = scan_shape[0]-1 
+    print('Correcting ' + str(num_pairs) + ' frames...')
+
+    # Prepare window function (Hann)
+    win = np.outer(np.hanning(scan_shape[1]),np.hanning(scan_shape[2]))
+
+    # Pairwise shifts
+    shift = np.zeros((2, num_pairs))
+    for iPair in range(0, num_pairs):
+        image = imstack[iPair]
+        offset_image = imstack[iPair+1]
+        shift[:,iPair], error, diffphase = register_translation_hybrid(image*win, offset_image*win, 
+                                                                        exponent = 0.3, upsample_factor = 100)
+        # Shifts are defined as [y, x] where y is shift of imaging location 
+        # with respect to positive y axis, similarly for x
+    return shift
+
+def compute_retained_box(shift_cumul, imshape):
+    # Computes coordinates and dimensions of area of image in view throughout the entire stack
+    # Uses cumulative shift vector [y, x] for each image, a 2 x N array with N = num_frames
+    # imshape is a tuple containing the (y, x) dimensions of the image in pixels
+
+    shift_cumul_y = shift_cumul[0,:]
+    shift_cumul_x = shift_cumul[1,:]
+
+    # NOTE: scan_shape indices 2, 3 correspond to y, x
+    y1 = int(round(np.max(shift_cumul_y[shift_cumul_y >= 0])+0.001, 0))
+    y2 = int(round(imshape[0] + np.min(shift_cumul_y[shift_cumul_y <= 0])-0.001, 0))
+    x1 = int(round(np.max(shift_cumul_x[shift_cumul_x >= 0])+0.001, 0))
+    x2 = int(round(imshape[1] + np.min(shift_cumul_x[shift_cumul_x <= 0])-0.001, 0))
+
+    boxfd = np.array([y1,y2,x1,x2])
+    boxdims = (boxfd[1]-boxfd[0], boxfd[3]-boxfd[2])
+    return boxfd, boxdims
+
+def align_image_stack(imstack, shift_cumul_set, boxfd):    
+    # Use fourier shift theorem to shift and align the images
+    # Takes imageset of format [frames, x, y]
+    # shift_cumul_set is the cumulative shifts associated with the image stack
+    # boxfd is the coordinate array [y1,y2,x1,x2] of the region in the original image that 
+    # is conserved throughout the image stack
+    
+    for iFrame in range(0, num_frames):
+        imstack[iFrame,:,:] = shift_subpixel(imstack[iFrame,:,:], 
+                                             dx=shift_cumul_set[1, iFrame], 
+                                             dy=shift_cumul_set[0, iFrame])
+    # Keep only preserved data
+    imstack = np.real(imstack[:,boxfd[0]:boxfd[1], boxfd[2]:boxfd[3]])
+    return imstack
