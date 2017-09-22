@@ -5,7 +5,7 @@ import pyqtgraph as pg
 import pyqtgraph.dockarea as dockarea
 from qtpy import QtWidgets, QtGui
 from scipy import optimize
-from scipy.ndimage.filters import gaussian_filter, convolve1d
+from scipy.ndimage.filters import gaussian_filter, correlate1d
 from scipy.signal import savgol_filter
 from scipy import interpolate
 
@@ -697,10 +697,13 @@ class AugerSpecMapView(DataBrowserView):
             dE = self.ke[0,1] - self.ke[0,0]
             # Always use a kernel out to 3 * E_loss to ensure enough feature size
             ke_kernel = np.arange(0, 3*E_loss, abs(dE))
+            if not np.mod(len(ke_kernel),2) == 0:
+                ke_kernel = np.arange(0, 3*E_loss+dE, abs(dE))
             self.K_toug = (8.0/np.pi**2)*R_loss*E_loss**2 * ke_kernel / ((2.0*E_loss/np.pi)**2 + ke_kernel**2)**2
             # Normalize the kernel so the its area is equal to R_loss
             self.K_toug /= (np.sum(self.K_toug) * dE)/R_loss
-            self.current_auger_map -= dE * convolve1d(self.current_auger_map, self.K_toug, axis=0)
+            self.current_auger_map -= dE * correlate1d(self.current_auger_map, self.K_toug,
+                                                        mode='nearest', origin=-len(ke_kernel)//2, axis=0)
     
     def perform_spectral_analysis(self):
         # FIX: Consolidate with map analysis
@@ -748,10 +751,13 @@ class AugerSpecMapView(DataBrowserView):
             dE = self.ke_interp[1] - self.ke_interp[0]
             # Always use a kernel out to 3 * E_loss to ensure enough feature size
             ke_kernel = np.arange(0, 3*E_loss, abs(dE))
+            if not np.mod(len(ke_kernel),2) == 0:
+                ke_kernel = np.arange(0, 3*E_loss+dE, abs(dE))
             self.K_toug = (8.0/np.pi**2)*R_loss*E_loss**2 * ke_kernel / ((2.0*E_loss/np.pi)**2 + ke_kernel**2)**2
             # Normalize the kernel so the its area is equal to R_loss
             self.K_toug /= (np.sum(self.K_toug) * dE)/R_loss
-            self.total_spec -= dE * convolve1d(self.total_spec, self.K_toug, axis=0)
+            self.total_spec -= dE * correlate1d(self.total_spec, self.K_toug,
+                                                        mode='nearest', origin=-len(ke_kernel)//2, axis=0)
 
 
     def fit_powerlaw(self, x, y):
