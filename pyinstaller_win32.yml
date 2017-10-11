@@ -41,11 +41,9 @@ dependencies:
 - wheel=0.29.0=py35_0
 - wincertstore=0.2=py35_0
 - zlib=1.2.11=vc14_0
+- pyqtgraph=0.10.0
 - pip:
   - future==0.16.0
   - pyinstaller==3.2.1
-  - pypiwin32==219
-  - pyqtgraph==0.10.0+g8d730f0
   - scopefoundry==1.0.0
-prefix: C:\Users\Alan\Anaconda3\envs\pyinstaller
 
