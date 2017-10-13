@@ -93,4 +93,8 @@ app.load_view(AndorCCDReadoutNPZ(app))
 from viewers.hyperspec_cl_h5 import HyperSpecCLH5View
 app.load_view(HyperSpecCLH5View(app))
 
+from FoundryDataBrowser.viewers.hyperspec_h5 import HyperSpecH5View
+app.load_view(HyperSpecH5View(app))
+
+
 sys.exit(app.exec_())
