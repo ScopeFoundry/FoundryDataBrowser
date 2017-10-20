@@ -118,7 +118,7 @@ class PicoHarpPTU(object):
                 tag_value = read_bin(ptu_file, '< %ds' % tag_size)[0].strip('\x00')
     
             elif TagTyp == tyWideString:
-                print 'WideString header fields not supported!'
+                print('WideString header fields not supported!')
                 raise(NotImplementedError)            
                 #             case tyWideString 
                 #                 % Matlab does not support Widestrings at all, just read and
@@ -229,7 +229,7 @@ class PicoHarpPTU(object):
         self.t2_event_times = self.t2_times[np.nonzero(self.t2_standard_record_mask)]
         self.t2_event_channels = self.t2_channels[ np.nonzero(self.t2_standard_record_mask) ]
         
-        print 'Loaded %d records' % self.num_records
+        print('Loaded %d records' % self.num_records)
         
 
 

@@ -23,23 +23,23 @@ save_data = True    # Set this to True to export the data as a text file
 PHD = PicoHarpPTU(filename, True)
 
 # Find all of the record indices of channel 0 events.  These mark the laser sync signal.
-print 'Finding channel 0 events'
+print('Finding channel 0 events')
 c0events = np.where(PHD.t2_channels == 0)[0]
 
 if (c0events.shape[0] <= 0):
 	print("No events found on channel 0.  Cannot process file.")
 	assert(c0events.shape[0] > 0)
 else:
-	print str.format('Found {0:d} channel 0 events', c0events.shape[0])
+	print(str.format('Found {0:d} channel 0 events', c0events.shape[0]))
 
 
 #Compute the time differences between the channel 0 events.  Should be a regular interval.
-print 'Calculating time difference between channel 1 events'
+print('Calculating time difference between channel 1 events')
 c0diffs = PHD.t2_times[c0events[1:]] - PHD.t2_times[c0events[:-1]]
-print 'done'
+print('done')
 
 #Construct an empty histogram in which to bin the events.
-print 'Construct an empty histogram in which to bin the events.'
+print('Construct an empty histogram in which to bin the events.')
 timeSpan = np.average(c0diffs)
 hist,bins = np.histogram(np.empty(0, np.int64), bins=binCount, range=[ 0, timeSpan ] )
 

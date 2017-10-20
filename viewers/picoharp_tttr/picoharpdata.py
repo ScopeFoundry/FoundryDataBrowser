@@ -47,13 +47,13 @@ class PicoHarpData(object):
         #### ASCII file header
         
         self.ident = _read_bin(phdfile,'< 16s')[0].strip('\x00')
-        if debug: print "ident: ", repr(self.ident)
+        if debug: print("ident: ", repr(self.ident))
         
         self.format_version = _read_bin(phdfile,'< 6s')[0].strip('\x00')
-        if debug: print "format_version:", repr(self.format_version)
+        if debug: print("format_version:", repr(self.format_version))
         
         if self.format_version not in ['1.0','1.1', '2.0']:
-            print 'Warning: This program is for versions 1.0 and 1.1 or 2.0 only. Aborted.'
+            print('Warning: This program is for versions 1.0 and 1.1 or 2.0 only. Aborted.')
             return None
         
         if self.format_version in ['1.0','1.1']:
@@ -63,28 +63,28 @@ class PicoHarpData(object):
             self.V1 = False
             self.V2 = True
         
-        if debug: print "V1", self.V1, "V2", self.V2
+        if debug: print("V1", self.V1, "V2", self.V2)
         
         self.creator_name = _read_bin(phdfile,'< 18s')[0].strip('\x00')
-        if debug: print repr(self.creator_name)
+        if debug: print(repr(self.creator_name))
     
         self.creator_version = _read_bin(phdfile,'< 12s')[0].strip('\x00')
-        if debug: print repr(self.creator_version)
+        if debug: print(repr(self.creator_version))
         
         self.file_time = _read_bin(phdfile,'< 18s')[0].strip('\x00')
-        if debug: print "file_time: ", repr(self.file_time)
+        if debug: print("file_time: ", repr(self.file_time))
         
         CRLF = phdfile.read(2)
         
         self.comment = _read_bin(phdfile,'< 256s')[0].strip('\x00')
-        if debug: print "comment :", repr(self.comment)
+        if debug: print("comment :", repr(self.comment))
     
         #### Binary file header
     
         # has 18 int32's 
         #binaryfile_header = phdfile.read(18*4)
         binaryfile_header = _read_bin(phdfile,'< 18i') #unpack('< 18i', binaryfile_header)
-        if debug: print "binaryfile_header: ", repr(binaryfile_header)
+        if debug: print("binaryfile_header: ", repr(binaryfile_header))
         
         #  parse / unpack binaryfile_header
         (self.number_of_curves, self.bits_per_histo_bin,
@@ -98,8 +98,8 @@ class PicoHarpData(object):
          self.disp_count_axis_from, self.disp_count_axis_to) = binaryfile_header
         
         if debug:
-            print "number_of_curves", self.number_of_curves
-            print "number_of_boards", self.number_of_boards
+            print("number_of_curves", self.number_of_curves)
+            print("number_of_boards", self.number_of_boards)
         
         
         
@@ -112,8 +112,8 @@ class PicoHarpData(object):
             self.disp_curve_map_to[i], = _read_bin(phdfile,'<i')  #unpack('<i', phdfile.read(4))
             self.disp_curve_show[i],   = _read_bin(phdfile,'<i')  #unpack('<i', phdfile.read(4))   
     
-        if debug: print repr(self.disp_curve_map_to)
-        if debug: print repr(self.disp_curve_show)
+        if debug: print(repr(self.disp_curve_map_to))
+        if debug: print(repr(self.disp_curve_show))
         
         ####
 
@@ -139,7 +139,7 @@ class PicoHarpData(object):
         self.boards = []
         
         for board_n in range(self.number_of_boards):
-            if debug: print "board", board_n
+            if debug: print("board", board_n)
             board = PicoHarpBoard()
             board.hardware_ident = _read_bin(phdfile,'< 16s')[0].strip('\x00') #unpack('< 16s', phdfile.read(16))[0].strip('\x00')
             board.hardware_version = _read_bin(phdfile,'< 8s')[0].strip('\x00') #unpack('< 8s', phdfile.read(8))[0].strip('\x00')
@@ -149,7 +149,7 @@ class PicoHarpData(object):
               
             board.resolution, = _read_bin(phdfile,'<f') #unpack('<f', phdfile.read(4))
             
-            if debug: print "board", board_n, "resolution", board.resolution 
+            if debug: print("board", board_n, "resolution", board.resolution) 
             
             if self.V2:
                 (RouterModelCode, board.RouterEnabled) = _read_bin(phdfile, '< i i')
@@ -186,7 +186,7 @@ class PicoHarpData(object):
             self.curves = []
                     
             for curve_n in range(self.number_of_curves):
-                if debug: print "curve", curve_n, "reading header"
+                if debug: print("curve", curve_n, "reading header")
                 c = PicoHarpCurve()
                 
                 c.index, c.time_of_recording = _read_bin(phdfile, '< i I')
@@ -207,7 +207,7 @@ class PicoHarpData(object):
                 
                 c.range_no, c.resolution, c.channels, c.tacq = _read_bin(phdfile, '< i f i i')
                 
-                if debug: print "curve", curve_n,"resolution", c.resolution
+                if debug: print("curve", curve_n,"resolution", c.resolution)
                 
                 
                 c.stop_after, c.stop_reason = _read_bin(phdfile, '< i i')
@@ -235,13 +235,13 @@ class PicoHarpData(object):
             for curve_n in range(self.number_of_curves):
                 curve = self.curves[curve_n]
                 #curve.data = _seek_read(phdfile, curve.data_offset, '< %iI' % curve.channels) #uint32
-                if debug: print 'curve', curve_n, 'seek to ', curve.data_offset
+                if debug: print('curve', curve_n, 'seek to ', curve.data_offset)
                 phdfile.seek(curve.data_offset, os.SEEK_SET)
-                if debug: print 'curve', curve_n, 'read', curve.channels
+                if debug: print('curve', curve_n, 'read', curve.channels)
                 raw_binary_string = phdfile.read(curve.channels*4)
-                if debug: print 'curve', curve_n, 'convert to numpy'
+                if debug: print('curve', curve_n, 'convert to numpy')
                 curve.data = np.fromstring(raw_binary_string, dtype=np.uint32, count=curve.channels)
-                if debug: print 'curve', curve_n, 'done'
+                if debug: print('curve', curve_n, 'done')
                 curve.time = np.arange(0, curve.resolution*curve.channels, curve.resolution) 
 
         elif self.measurement_mode == 2:
@@ -260,9 +260,9 @@ class PicoHarpData(object):
             if self.img_hdr_size > 0:
                 self.img_hdr = _read_bin(phdfile, '< %i I' % self.img_hdr_size)
                 
-            if debug: print 'T2 records read', self.num_records
+            if debug: print('T2 records read', self.num_records)
             raw_binary_string = phdfile.read(self.num_records*4)  #uint32's (4 bytes each)
-            if debug: print 'T2 records convert to numpy'
+            if debug: print('T2 records convert to numpy')
             self.t2_rawdata = np.fromstring(raw_binary_string, dtype=np.uint32, count=self.num_records)
             
             self.t2_channels = self.t2_rawdata >> 28
@@ -295,7 +295,7 @@ class PicoHarpData(object):
 
             
         else:
-            print "measurement_mode %i is not supported / unknown" % self.measurement_mode
+            print("measurement_mode %i is not supported / unknown" % self.measurement_mode)
         
         if debug: pprint(self.__dict__ )
     
@@ -318,8 +318,8 @@ if __name__ == '__main__':
     
     import pylab as pl
     
-    print phd.curves[0].time.shape
-    print phd.curves[0].data.shape
+    print(phd.curves[0].time.shape)
+    print(phd.curves[0].data.shape)
     pl.semilogy(phd.curves[0].time, phd.curves[0].data)
     
     pl.show()
