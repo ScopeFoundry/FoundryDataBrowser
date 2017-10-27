@@ -2,6 +2,7 @@ from ScopeFoundry.data_browser import DataBrowser, HyperSpectralBaseView
 import numpy as np
 import pyqtgraph as pg
 from qtpy import QtWidgets
+from scipy.ndimage.filters import gaussian_filter
 
 
 def t_x_calc(time_array, time_trace_map, kk_start, kk_stop, x=1-0.36787944117, bgsub=True):
@@ -36,33 +37,8 @@ def t_x_calc(time_array, time_trace_map, kk_start, kk_stop, x=1-0.36787944117, b
         
     return t_x_map, bg
 
-class TRPL_t_x_lifetime_NPZView(HyperSpectralBaseView):
+class TRPL_t_x_lifetime_BaseView(HyperSpectralBaseView):
 
-    name = 'trpl_t_x_lifetime_npz'
-    
-    def is_file_supported(self, fname):
-        return "_trpl_scan.npz" in fname
-
-    def load_data(self, fname):
-        self.dat = np.load(fname)
-        
-        cr0 = self.dat['picoharp_count_rate0']
-        rep_period_s = 1.0/cr0
-        time_bin_resolution = self.dat['picoharp_Resolution']*1e-12
-        self.num_hist_chans = int(np.ceil(rep_period_s/time_bin_resolution))
-        
-        # truncate data to only show the time period associated with rep-rate of laser
-        
-        self.time_trace_map = self.dat['time_trace_map']
-        self.integrated_count_map = self.dat['integrated_count_map']
-        self.time_array = self.dat['time_array']
-
-        self.hyperspec_data = self.time_trace_map[:,:,0:self.num_hist_chans]+1
-        self.display_image = self.integrated_count_map
-        self.spec_x_array = self.time_array[0:self.num_hist_chans]
-
-        self.compute_lifetime_map()
-    
     def scan_specific_setup(self):
         
         self.settings.New('kk_start', dtype=int, initial=0)
@@ -70,6 +46,10 @@ class TRPL_t_x_lifetime_NPZView(HyperSpectralBaseView):
         self.settings.New('bg_sub',   dtype=bool, initial=True)
         self.settings.New('e_exp', dtype=float, initial=1.0)
         self.settings.New('auto_recompute', dtype=bool, initial=True)
+        self.settings.New('spatial_blur', dtype=bool, initial=False)
+        self.settings.New('blur_sigma', dtype=float, initial=True)
+        self.settings.New('map_display', dtype=str, initial='tau_x', 
+                          choices=('tau_x', 'total_counts'))
         
         self.settings_ui = self.settings.New_UI()
         self.compute_button = QtWidgets.QPushButton("Go")
@@ -82,7 +62,8 @@ class TRPL_t_x_lifetime_NPZView(HyperSpectralBaseView):
         self.settings.kk_start.add_listener(self.on_update_kk_bounds)
         self.settings.kk_stop.add_listener(self.on_update_kk_bounds) 
         
-        for lqname in ['kk_start', 'kk_stop', 'bg_sub', 'e_exp']:
+        for lqname in ['kk_start', 'kk_stop', 'bg_sub', 'e_exp',
+                       'spatial_blur', 'blur_sigma', 'map_display']:
             self.settings.get_lq(lqname).add_listener(self.on_param_changes)
                
             
@@ -91,9 +72,9 @@ class TRPL_t_x_lifetime_NPZView(HyperSpectralBaseView):
         self.spec_plot.setLabel('left', 'Intensity', units='counts')
         self.spec_plot.setLabel('bottom', 'time', units='ns')
         
-        self.kk_start_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, name='kk_start')
-        self.kk_stop_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, name='kk_stop')
-        self.tau_x_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, name='tau_x')
+        self.kk_start_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, )#name='kk_start')
+        self.kk_stop_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, )#name='kk_stop')
+        self.tau_x_vline = pg.InfiniteLine(0, angle=90, pen=1, movable=False, )#name='tau_x')
     
         self.spec_plot.addItem(self.kk_start_vline,  ignoreBounds=True)
         self.spec_plot.addItem(self.kk_stop_vline,  ignoreBounds=True)
@@ -120,20 +101,62 @@ class TRPL_t_x_lifetime_NPZView(HyperSpectralBaseView):
             self.compute_lifetime_map()
         
     def compute_lifetime_map(self):
+        
+        if self.settings['spatial_blur']:
+            s = self.settings['blur_sigma']
+            data_map = gaussian_filter(self.time_trace_map, sigma=(s,s,0))
+        else:
+            data_map = self.time_trace_map
+        
         self.tau_x_map, self.bg = t_x_calc(self.time_array, 
-                                           self.time_trace_map,
+                                           data_map,
                                            x = 1 - np.exp(-1*self.settings['e_exp']),
                                            kk_start=self.settings['kk_start'], 
                                            kk_stop=self.settings['kk_stop'],
                                            bgsub=self.settings['bg_sub'])
         
-        self.time_trace_map_bgsub = self.time_trace_map - self.bg
+        self.time_trace_map_bgsub = data_map - self.bg
         
-        self.display_image = self.tau_x_map
+    
+        #self.display_image = 
+        self.display_image = dict(
+            tau_x = self.tau_x_map,
+            total_counts = data_map.sum(axis=2)
+            )[self.settings['map_display']]
+    
+        self.hyperspec_data = data_map+1
     
         self.update_display()
+        
+        
+class TRPL_t_x_lifetime_NPZView(TRPL_t_x_lifetime_BaseView):
+    name = 'trpl_t_x_lifetime_npz'
+    
+    def is_file_supported(self, fname):
+        return "_trpl_scan.npz" in fname
 
-class TRPL_t_x_lifetime_fiber_scan_View(TRPL_t_x_lifetime_NPZView):
+    def load_data(self, fname):
+        self.dat = np.load(fname)
+        
+        cr0 = self.dat['picoharp_count_rate0']
+        rep_period_s = 1.0/cr0
+        time_bin_resolution = self.dat['picoharp_Resolution']*1e-12
+        self.num_hist_chans = int(np.ceil(rep_period_s/time_bin_resolution))
+        
+        # truncate data to only show the time period associated with rep-rate of laser
+        
+        self.time_trace_map = self.dat['time_trace_map'][:,:,0:self.num_hist_chans]
+        self.integrated_count_map = self.dat['integrated_count_map']
+        self.time_array = self.dat['time_array'][0:self.num_hist_chans]
+
+        self.hyperspec_data = self.time_trace_map + 1
+        self.display_image = self.integrated_count_map
+        self.spec_x_array = self.time_array
+
+        self.compute_lifetime_map()
+    
+
+class TRPL_t_x_lifetime_fiber_scan_View(TRPL_t_x_lifetime_BaseView):
     name = 'trpl_t_x_lifetime_fiber_scan'
     
     def is_file_supported(self, fname):
@@ -164,6 +187,36 @@ class TRPL_t_x_lifetime_fiber_scan_View(TRPL_t_x_lifetime_NPZView):
 
         self.compute_lifetime_map()
 
+class TRPL_t_x_lifetime_H5_View(TRPL_t_x_lifetime_BaseView):
+    name = 'trpl_t_x_lifetime_h5'
+    
+    def is_file_supported(self, fname):
+        return "Picoharp_MCL_2DSlowScan.h5" in fname
+
+    def load_data(self, fname):
+        import h5py
+        #self.dat = np.load(fname)
+        self.dat = h5py.File(fname)
+        self.M = self.dat['measurement/Picoharp_MCL_2DSlowScan']
+        
+        cr0 = self.dat['hardware/picoharp/settings'].attrs['count_rate0']
+        rep_period_s = 1.0/cr0
+        time_bin_resolution = self.dat['hardware/picoharp/settings'].attrs['Resolution']*1e-12
+        self.num_hist_chans = int(np.ceil(rep_period_s/time_bin_resolution))
+        
+        # truncate data to only show the time period associated with rep-rate of laser
+        def norm_2d(X):
+            return X / np.reshape(np.max(X, 2), X.shape[:-1] + (1,))
+
+        self.time_trace_map = norm_2d(np.array(self.M['time_trace_map'][0,:,:,:]))
+        self.integrated_count_map = self.time_trace_map.sum(axis=2)
+        self.time_array = np.array(self.M['time_array'])
+
+        self.hyperspec_data = self.time_trace_map[:,:,0:self.num_hist_chans]+1
+        self.display_image = self.integrated_count_map
+        self.spec_x_array = self.time_array[0:self.num_hist_chans]
+
+        self.compute_lifetime_map()
 
 
 if __name__ == '__main__':

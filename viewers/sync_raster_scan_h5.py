@@ -32,7 +32,10 @@ class SyncRasterScanH5(DataBrowserView):
         
         try:
             self.dat = h5py.File(fname)
-            M = self.measurement = self.dat['measurement/sem_sync_raster_scan']
+            m_locs = ['measurement/sem_sync_raster_scan', 'measurement/sync_raster_scan']
+            for node_name in m_locs:
+                if node_name in self.dat:
+                    M = self.measurement = self.dat[node_name]
             nframe, nsubframe, ny, nx, nadc_chan = M['adc_map'].shape
             self.settings.frame.change_min_max(0, nframe-1)
             self.settings.sub_frame.change_min_max(0, nsubframe-1)
@@ -43,7 +46,7 @@ class SyncRasterScanH5(DataBrowserView):
             raise(err)
         
     def is_file_supported(self, fname):
-        return "sem_sync_raster_scan.h5" in fname
+        return ("sem_sync_raster_scan.h5" in fname) or ("sync_raster_scan.h5" in fname)
     
     def update_display(self):
         
@@ -62,8 +65,10 @@ class SyncRasterScanH5(DataBrowserView):
         elif chan == 'ctr1':
             im = M['ctr_map'][ii, jj, :,:, 1]
 
-        self.imview.setImage(im.T, autoLevels=self.settings['auto_level'], )
+        self.imview.setImage(im.T[:,::-1], autoLevels=self.settings['auto_level'], )
 
+        if self.settings['auto_level']:
+            self.imview.setLevels(*np.percentile(im, (1,99) ))
 
         #self.info_label.setText("{} plane {}={} um (index={})".format(
         #    plane, other_ax, self.dat[other_ax+'_array'][ii], ii))
