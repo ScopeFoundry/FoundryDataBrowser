@@ -2,9 +2,9 @@ from ScopeFoundry.data_browser import HyperSpectralBaseView
 import h5py
 import numpy as np
 
-class HyperSpecIRView(HyperSpectralBaseView):
+class HyperSpecH5View(HyperSpectralBaseView):
     
-    name = 'hyperspec_IR_h5'
+    name = 'hyperspec_h5'
     
     def is_file_supported(self, fname):
         return "_m4_hyperspectral_2d_scan.h5" in fname
