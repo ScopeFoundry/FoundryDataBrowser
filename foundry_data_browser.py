@@ -40,6 +40,9 @@ app.load_view(ApdConfocal3dNPZView(app))
 from FoundryDataBrowser.viewers.picoharp_npz import PicoHarpNPZView
 app.load_view(PicoHarpNPZView(app))
 
+from FoundryDataBrowser.viewers.picoharp_histogram_h5 import PicoHarpHistogramH5View
+app.load_view(PicoHarpHistogramH5View(app))
+
 from FoundryDataBrowser.viewers.hyperspec_npz import HyperSpecNPZView
 app.load_view(HyperSpecNPZView(app))
 
