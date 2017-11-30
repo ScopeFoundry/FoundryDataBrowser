@@ -17,8 +17,10 @@ class WinSpecRemoteReadoutView(DataBrowserView):
         
         try:
             self.dat = h5py.File(fname, 'r')
-            
-            self.H = self.dat['measurement/WinSpecRemoteReadout']
+            try:
+                self.H = self.dat['measurement/WinSpecRemoteReadout']
+            except:
+                self.H = self.dat['measurement/winspec_readout']
             self.wls = self.H['wls']
             self.spectrum = self.H['spectrum']
             self.plotdata.setData(self.wls, np.squeeze(self.spectrum))
@@ -27,4 +29,4 @@ class WinSpecRemoteReadoutView(DataBrowserView):
             raise(err)
         
     def is_file_supported(self, fname):
-        return "WinSpecRemoteReadout.h5" in fname        
+        return ("WinSpecRemoteReadout.h5" in fname) or  ("winspec_readout.h5" in fname)      
