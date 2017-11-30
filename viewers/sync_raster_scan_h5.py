@@ -3,6 +3,11 @@ import pyqtgraph as pg
 import numpy as np
 from qtpy import QtWidgets
 import h5py
+from collections import namedtuple, OrderedDict
+import json
+
+AvailChan = namedtuple('AvailChan', ['type_', 'index', 'phys_chan', 'chan_name', 'term'])
+
 
 class SyncRasterScanH5(DataBrowserView):
 
@@ -39,6 +44,22 @@ class SyncRasterScanH5(DataBrowserView):
             nframe, nsubframe, ny, nx, nadc_chan = M['adc_map'].shape
             self.settings.frame.change_min_max(0, nframe-1)
             self.settings.sub_frame.change_min_max(0, nsubframe-1)
+            
+            scanDAQ = self.dat['hardware/sync_raster_daq/settings'].attrs
+            
+            self.available_chan_dict = OrderedDict()
+                
+            for i, phys_chan in enumerate(json.loads(scanDAQ['adc_channels'])):
+                self.available_chan_dict[phys_chan] = AvailChan(
+                    # type, index, physical_chan, channel_name, terminal
+                    'ai', i, phys_chan, json.loads(scanDAQ['adc_chan_names'])[i], phys_chan)
+            for i, phys_chan in enumerate(json.loads(scanDAQ['ctr_channels'])):
+                self.available_chan_dict[phys_chan] = AvailChan(
+                    # type, index, physical_chan, channel_name, terminal
+                    'ctr', i, phys_chan, json.loads(scanDAQ['ctr_chan_names'])[i], json.loads(scanDAQ['ctr_chan_terms'])[i])
+
+            self.settings.channel.change_choice_list( [ (" ".join([chan.chan_name, chan.phys_chan]), key) for key, chan in self.available_chan_dict.items()] )
+            
             self.update_display()
         except Exception as err:
             self.imview.setImage(np.zeros((10,10)))
@@ -54,16 +75,24 @@ class SyncRasterScanH5(DataBrowserView):
         
         ii = self.settings['frame']
         jj = self.settings['sub_frame']
-        chan = self.settings['channel']
+        chan_name = self.settings['channel']
+
+        chan = self.available_chan_dict[chan_name]
         
-        if   chan == 'ai0':
-            im = M['adc_map'][ii, jj, :,:, 0]
-        elif chan == 'ai1':
-            im = M['adc_map'][ii, jj, :,:, 1]
-        elif chan == 'ctr0':
-            im = M['ctr_map'][ii, jj, :,:, 0]
-        elif chan == 'ctr1':
-            im = M['ctr_map'][ii, jj, :,:, 1]
+#         if   chan == 'ai0':
+#             im = M['adc_map'][ii, jj, :,:, 0]
+#         elif chan == 'ai1':
+#             im = M['adc_map'][ii, jj, :,:, 1]
+#         elif chan == 'ctr0':
+#             im = M['ctr_map'][ii, jj, :,:, 0]
+#         elif chan == 'ctr1':
+#             im = M['ctr_map'][ii, jj, :,:, 1]
+
+        if chan.type_ == 'ai':
+            im = M['adc_map'][ii,jj,:,:,chan.index]
+        if chan.type_ == 'ctr':
+            im = M['ctr_map'][ii,jj,:,:,chan.index]
+
 
         self.imview.setImage(im.T[:,::-1], autoLevels=self.settings['auto_level'], )
 

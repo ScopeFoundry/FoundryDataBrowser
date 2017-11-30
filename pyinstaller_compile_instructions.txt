@@ -1,0 +1,6 @@
+conda remove --name pyinstaller --all
+cd FoundryDataBrowser
+rmdir /s build dist
+conda env create -f pyinstaller_win32.yml
+activate pyinstaller
+pyinstaller foundry_data_browser_win32.spec

@@ -5,13 +5,15 @@ import pyqtgraph as pg
 import pyqtgraph.dockarea as dockarea
 from qtpy import QtWidgets, QtGui
 from scipy import optimize
-from scipy.ndimage.filters import gaussian_filter, convolve1d
+from scipy.ndimage.filters import gaussian_filter, correlate1d
 from scipy.signal import savgol_filter
 from scipy import interpolate
 
 import sys
+import time
 #sys.path.insert(0, '/home/dbdurham/foundry_scope/FoundryDataBrowser/viewers')
-from .drift_correction import register_translation_hybrid, shift_subpixel
+from .drift_correction import register_translation_hybrid, shift_subpixel, \
+                              compute_pairwise_shifts, compute_retained_box, align_image_stack
 
 class AugerSpecMapView(DataBrowserView):
     
@@ -24,7 +26,18 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.New('drift_correct_adc_chan', dtype=int)
         
         self.settings.New('drift_correct', dtype=bool)
-        self.settings.get_lq('drift_correct').add_listener(self.on_change_drift_correct)
+        self.settings.New('overwrite_alignment', dtype=bool)
+        # if drift corrected datasets already exist, overwrite?
+        
+        self.settings.New('run_preprocess', dtype=bool)
+        self.settings.get_lq('run_preprocess').add_listener(self.preprocess)
+        
+        self.settings.New('use_preprocess', dtype=bool, initial=True)
+        self.settings.get_lq('use_preprocess').add_listener(self.load_new_data)
+        
+        self.settings.New('update_auger_map', dtype=bool, initial=False)
+        self.settings.get_lq('update_auger_map').add_listener(self.update_current_auger_map)
+        
         
         self.settings.New('equalize_detectors', dtype=bool)
         self.settings.New('normalize_by_pass_energy', dtype=bool)
@@ -65,11 +78,14 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.New('math_mode', dtype=str, initial='A')
         self.settings.get_lq('math_mode').add_listener(self.on_change_math_mode)
         
-        self.settings.New('AB_mode', dtype=str, choices=['Mean', 'Integral'])
+        self.settings.New('AB_mode', dtype=str, choices=['Mean', 'Integral'], initial='Mean')
         self.settings.get_lq('AB_mode').add_listener(self.on_change_ke_settings)
         
         self.settings.New('spectrum_over_ROI', dtype=bool)
         self.settings.get_lq('spectrum_over_ROI').add_listener(self.on_change_spectrum_over_ROI)
+        
+        self.settings.New('analysis_over_spectrum', dtype=bool)
+        self.settings.get_lq('analysis_over_spectrum').add_listener(self.update_current_auger_map)
         
         self.settings.New('mean_spectrum_only', dtype=bool, initial=False)
         self.settings.get_lq('mean_spectrum_only').add_listener(self.on_change_mean_spectrum_only)
@@ -81,7 +97,8 @@ class AugerSpecMapView(DataBrowserView):
         self.ui = self.dockarea = dockarea.DockArea()
         
         # List of settings to include in preprocessing tab
-        names_prep = ['drift_correct_type','drift_correct_adc_chan', 'drift_correct']
+        names_prep = ['drift_correct_type','drift_correct_adc_chan', 'drift_correct',
+                      'overwrite_alignment', 'run_preprocess']
         
         self.setdock = self.dockarea.addDock(name='Settings', position='left', 
                               widget=self.settings.New_UI(exclude=names_prep))
@@ -180,28 +197,15 @@ class AugerSpecMapView(DataBrowserView):
 
     def on_change_data_filename(self, fname=None):
         try:
+            # FIX: Should close the h5 file that was previously open
+            # FIX: h5 file should also be closed on program close
+            
             self.fname = fname
             print('opening hdf5 file...')
-            self.dat = h5py.File(self.fname, 'r')
+            self.dat = h5py.File(self.fname, 'r+')
             print('hdf5 file loaded')
             self.H = self.dat['measurement/auger_sync_raster_scan/']
             h = self.h_settings = dict(self.H['settings'].attrs)
-            print('copying arrays into memory...')
-            print('adc map...')
-            self.adc_map = np.array(self.H['adc_map'])
-            self.settings.drift_correct_adc_chan.change_min_max(vmin=0, vmax=self.adc_map.shape[-1]-1)
-            # ctr map is not very useful here...
-#             print('ctr map...')
-#             self.ctr_map = np.array(self.H['ctr_map'])
-            print('auger map...')
-            self.auger_map = np.array(self.H['auger_chan_map'], dtype=float)
-            print('dataset arrays now available')
-            time_per_px = self.auger_map[:,:,:,:,8:9]* 25e-9 # units of 25ns converted to seconds
-            self.auger_map = self.auger_map[:,:,:,:,0:7]/time_per_px # auger map now in Hz
-#             self.auger_sum_map = self.auger_map[:,:,:,:,0:7].mean(axis=4)
-            
-            print('loading ke...')
-            self.ke = np.array(self.H['ke'])
             
             self.h_range = (h['h0'], h['h1'])
             self.v_range = (h['v0'], h['v1'])
@@ -213,165 +217,179 @@ class AugerSpecMapView(DataBrowserView):
             
             #scan_shape = self.adc_map.shape[:-1]
             
-            # Close the h5 dataset, everything is stored in current memory now
-            self.dat.close()
+#             # Close the h5 dataset, everything is stored in current memory now
+#             self.dat.close()
             
-            # SEM image displays update
-            print('setting SEM image stacks...')
-            self.imview_sem0_stack.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=1), (0,2,1)))
-            self.imview_sem1_stack.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=1), (0,2,1)))
-            print('setting SEM mean image...')
-            self.imview_sem0.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=(0,1))))
-            self.imview_sem1.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=(0,1))))
-            
-            # Update Scale Bar
-            self.on_change_scalebar()
-            
-            # Calculate relative detector efficiencies
-            print('calculating detector efficiencies...')
-            self.calculate_detector_efficiencies()
-            
-            # Auger map and display update
-            print('updating auger map')
-            self.update_current_auger_map()
+            self.load_new_data()
             
             #self.update_display()
         except Exception as err:
             print(err)
-            self.imview.setImage(np.zeros((10,10)))
+            self.imview_auger.setImage(np.zeros((10,10)))
             self.databrowser.ui.statusbar.showMessage("Failed to load %s: %s" %(fname, err))
             raise(err)
     
-    def on_change_drift_correct(self):
-        
+    def preprocess(self):
         if self.settings['drift_correct']:
-            #### Phase 1: Pairwise Correction ####
-            
-            scan_shape = self.adc_map.shape[:-1]
-            adc_chan = self.settings['drift_correct_adc_chan']
-            num_frames = scan_shape[0]  # Consider allowing correcting only over a range in case data has blank or incorrect frames
-            print('Correcting ' + str(num_frames) + ' frames...')
-            print('adc map shape', self.adc_map.shape)
-            print('auger map shape', self.auger_map.shape)
-            
-            # Prepare window function (Hann)
-            win = np.outer(np.hanning(scan_shape[2]),np.hanning(scan_shape[3]))
-            
-            # Pairwise shifts
-            shift = np.zeros((2, num_frames))
-            for iFrame in range(1, num_frames):
-                image = self.adc_map[iFrame-1,0,:,:,adc_chan]
-                offset_image = self.adc_map[iFrame,0,:,:,adc_chan]
-                shift[:,iFrame], error, diffphase = register_translation_hybrid(image*win, offset_image*win, exponent = 0.3, upsample_factor = 100)
-            
-            # Shifts are defined as [y, x] where y is shift of imaging location with respect to positive y axis, similarly for x
-                
-            shift_sum = np.sum(shift, axis=1)
-            # Cumulative sum defines shift with respect to original image for each image
-            # Maxima and minima in cumulative x and y shifts defines box within which all images have defined pixels
-            shift_cumul = np.cumsum(shift, axis=1)
-            
-            # Determining coordinates of fully defined box for original image
-
-            shift_cumul_y = shift_cumul[0,:]
-            shift_cumul_x = shift_cumul[1,:]
-            
-            # NOTE: scan_shape indices 2, 3 correspond to y, x
-            y1 = int(round(np.max(shift_cumul_y[shift_cumul_y >= 0])+0.001, 0))
-            y2 = int(round(scan_shape[2] + np.min(shift_cumul_y[shift_cumul_y <= 0])-0.001, 0))
-            x1 = int(round(np.max(shift_cumul_x[shift_cumul_x >= 0])+0.001, 0))
-            x2 = int(round(scan_shape[3] + np.min(shift_cumul_x[shift_cumul_x <= 0])-0.001, 0))
-            
-            boxfd = np.array([y1,y2,x1,x2])
-            boxdims = (boxfd[1]-boxfd[0], boxfd[3]-boxfd[2])
-            
-            # Shift images to align
-            imstack = np.zeros((num_frames, scan_shape[1], scan_shape[2], scan_shape[3], 2))
-            specstack = np.zeros((num_frames, scan_shape[1], scan_shape[2], scan_shape[3], self.auger_map.shape[4]))
-            for iFrame in range(0, num_frames):
-                # Shift adc map
-                for iDet in range(0, imstack.shape[4]):
-                    imstack[iFrame,0,:,:,iDet] = shift_subpixel(self.adc_map[iFrame,0,:,:,iDet], dx=shift_cumul_x[iFrame], dy=shift_cumul_y[iFrame])
-                # Shift spectral data
-                for iDet in range(0, self.auger_map.shape[4]):
-                    specstack[iFrame,0,:,:,iDet] = shift_subpixel(self.auger_map[iFrame,0,:,:,iDet], dx=shift_cumul_x[iFrame], dy=shift_cumul_y[iFrame])
-            
-            # Keep only preserved data
-            imstack = np.real(imstack[:,:,boxfd[0]:boxfd[1], boxfd[2]:boxfd[3],:])
-            specstack = np.real(specstack[:,:,boxfd[0]:boxfd[1], boxfd[2]:boxfd[3],:])
-            
-            if self.settings['drift_correct_type'] == 'Pairwise + Running Avg':
-                #### Phase 2: Running Average ####
-                
-                # Update the image shape
-                imshape = imstack.shape
-                imstack_run = imstack.copy()
-                specstack_run = specstack.copy()
-                
-                # Prepare window function (Hann)
-                win = np.outer(np.hanning(imshape[2]),np.hanning(imshape[3]))
-                
-                # Shifts to running average
-                shift = np.zeros((2, num_frames))
-                image = imstack[0,0,:,:,adc_chan]
-                for iFrame in range(1, num_frames):
-                    offset_image = imstack[iFrame,0,:,:,adc_chan]
-                    # Calculate shift
-                    shift[:,iFrame], error, diffphase = register_translation_hybrid(image*win, offset_image*win, exponent = 0.3, upsample_factor = 100)
-                    # Perform shifts
-                    # Shift adc map
-                    for iDet in range(0, imstack.shape[4]):
-                        imstack_run[iFrame,0,:,:,iDet] = shift_subpixel(imstack[iFrame,0,:,:,iDet], dx = shift[1,iFrame], dy = shift[0, iFrame])
-                     # Shift spectral data
-                    for iDet in range(0, specstack.shape[4]):
-                        specstack_run[iFrame,0,:,:,iDet] = shift_subpixel(specstack[iFrame,0,:,:,iDet], dx = shift[1,iFrame], dy = shift[0, iFrame])
-                    # Update running average
-                    image = (iFrame/(iFrame+1)) * image + (1/(iFrame+1)) * imstack_run[iFrame,0,:,:,adc_chan]
-                # Shifts are defined as [y, x] where y is shift of imaging location with respect to positive y axis, similarly for x
-                
-                # Determining coordinates of fully defined box for original image
-    
-                shift_y = shift[0,:]
-                shift_x = shift[1,:]
-                
-                # NOTE: scan_shape indices 2, 3 correspond to y, x
-                y1 = int(round(np.max(shift_y[shift_y >= 0])+0.001, 0))
-                y2 = int(round(imshape[2] + np.min(shift_y[shift_y <= 0])-0.001, 0))
-                x1 = int(round(np.max(shift_x[shift_x >= 0])+0.001, 0))
-                x2 = int(round(imshape[3] + np.min(shift_x[shift_x <= 0])-0.001, 0))
-                
-                boxfd = np.array([y1, y2, x1, x2])
-                boxdims = (boxfd[1]-boxfd[0], boxfd[3]-boxfd[2])
-                
-                # Keep only preserved data
-                self.adc_map = np.real(imstack_run[:,:,boxfd[0]:boxfd[1], boxfd[2]:boxfd[3],:])
-                self.auger_map = np.real(specstack_run[:,:,boxfd[0]:boxfd[1], boxfd[2]:boxfd[3],:])
-            else:
-                self.adc_map = imstack
-                self.auger_map = specstack
-            
-        else: #reload original images and auger from h5
-            print('opening hdf5 file...')
-            dat = h5py.File(self.fname, 'r')
-            print('hdf5 file loaded')
-            self.H = dat['measurement/auger_sync_raster_scan/']
-            print('copying arrays into memory...')
-            print('adc map...')
-            self.adc_map = np.array(self.H['adc_map'])
-            print('auger map...')
-            self.auger_map = np.array(self.H['auger_chan_map'], dtype=float)
-            print('dataset arrays now available')
-            time_per_px = self.auger_map[:,:,:,:,8:9]* 25e-9 # units of 25ns converted to seconds
-            self.auger_map = self.auger_map[:,:,:,:,0:7]/time_per_px # auger map now in Hz
-            
-            dat.close()
-            
-        # Display
-        self.imview_sem0_stack.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=1), (0,2,1)))
-        self.imview_sem1_stack.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=1), (0,2,1)))
-        self.imview_sem0.setImage(np.transpose(self.adc_map[:,:,:,:,0].mean(axis=(0,1))))
-        self.imview_sem1.setImage(np.transpose(self.adc_map[:,:,:,:,1].mean(axis=(0,1))))
+            # Need to read existing datasets here in case of changes since loading file initially
+            h_datasets = list(self.H.keys())
+            if self.settings['overwrite_alignment'] or not('auger_chan_map_aligned' in h_datasets):
+                if 'auger_chan_map_aligned' in h_datasets:
+                    del self.H['adc_map_aligned']
+                    del self.H['auger_chan_map_aligned']
+                t0 = time.time()
+                self.drift_correct()
+                tdc = time.time()
+                print('Drift correct time', tdc-t0)
+                # refer to aligned data
+                self.adc_map_h5 = self.adc_map_aligned_h5
+                self.auger_map_h5 = self.auger_map_aligned_h5
         
+        else:
+            # refer to raw data 
+            self.adc_map_h5 = self.adc_map_raw_h5
+            self.auger_map_h5 = self.auger_map_raw_h5
+        
+        t0 = time.time()
+        # Update displays
+        self.imview_sem0_stack.setImage(np.transpose(self.adc_map_h5[:,:,:,:,0].mean(axis=1), (0,2,1)))
+        self.imview_sem1_stack.setImage(np.transpose(self.adc_map_h5[:,:,:,:,1].mean(axis=1), (0,2,1)))
+        self.imview_sem0.setImage(np.transpose(self.adc_map_h5[:,:,:,:,0].mean(axis=(0,1))))
+        self.imview_sem1.setImage(np.transpose(self.adc_map_h5[:,:,:,:,1].mean(axis=(0,1))))
+        tsup = time.time()
+        print('update display time', tsup-t0)
+        
+        # Update analysis
+        self.update_current_auger_map()
+        tcam = time.time()
+        print('update auger map time', tcam-tsup)
+        
+    def drift_correct(self):
+        
+        t0 = time.time()
+        correct_chan = self.settings['drift_correct_adc_chan']
+        shift = compute_pairwise_shifts(self.adc_map_h5[:,0,:,:,correct_chan])
+        tps = time.time()
+        print('pairwise shifts time', tps-t0)
+        shift = np.concatenate([np.zeros((2,1)), shift],axis=1)
+        # Cumulative sum defines shift with respect to original image for each image
+        # Maxima and minima in cumulative x and y shifts defines box within which all images have defined pixels
+        shift_cumul = np.cumsum(shift, axis=1)
+        
+        scan_shape_adc = self.adc_map_h5.shape
+        scan_shape_auger = self.auger_map_h5.shape
+        boxfd, boxdims = compute_retained_box(shift_cumul, 
+                                              (scan_shape_adc[2], scan_shape_adc[3]))
+        trb = time.time()
+        print('retained box time', trb-tps)
+        align_shape_adc = (scan_shape_adc[0], scan_shape_adc[1], boxdims[0], boxdims[1], scan_shape_adc[4])
+        align_shape_auger = (scan_shape_auger[0], scan_shape_auger[1], boxdims[0], boxdims[1], scan_shape_auger[4])
+        self.adc_map_aligned_h5 = self.H.create_dataset('adc_map_aligned', 
+                                                        align_shape_adc, 
+                                                        self.adc_map_h5.dtype)
+        self.auger_map_aligned_h5 = self.H.create_dataset('auger_chan_map_aligned', 
+                                                          align_shape_auger, 
+                                                          self.auger_map_h5.dtype)
+        tdat = time.time()
+        print('create dataset time', tdat-trb)
+        # Shift images to align
+        for iFrame in range(0, scan_shape_adc[0]):
+            # Shift adc map
+            for iDet in range(0, align_shape_adc[-1]):
+                adc_shift = shift_subpixel(self.adc_map_h5[iFrame,0,:,:,iDet], 
+                                           dx=shift_cumul[1, iFrame], 
+                                           dy=shift_cumul[0, iFrame])
+                self.adc_map_aligned_h5[iFrame,0,:,:,iDet] = np.real(adc_shift[boxfd[0]:boxfd[1], boxfd[2]:boxfd[3]])
+            # Shift spectral data
+            for iDet in range(0, align_shape_auger[-1]):
+                auger_shift = shift_subpixel(self.auger_map_h5[iFrame,0,:,:,iDet], 
+                                             dx=shift_cumul[1, iFrame], 
+                                             dy=shift_cumul[0, iFrame])
+                self.auger_map_aligned_h5[iFrame,0,:,:,iDet] = np.real(auger_shift[boxfd[0]:boxfd[1], boxfd[2]:boxfd[3]])
+        talign = time.time()
+        print('align datasets time', talign-tdat)
+        
+#         if self.settings['drift_correct_type'] == 'Pairwise + Running Avg':
+#             #### Phase 2: Running Average ####
+#             
+#             # Update the image shape
+#             imshape = imstack.shape
+#             imstack_run = imstack.copy()
+#             specstack_run = specstack.copy()
+#             
+#             # Prepare window function (Hann)
+#             win = np.outer(np.hanning(imshape[2]),np.hanning(imshape[3]))
+#             
+#             # Shifts to running average
+#             shift = np.zeros((2, num_frames))
+#             image = imstack[0,0,:,:,adc_chan]
+#             for iFrame in range(1, num_frames):
+#                 offset_image = imstack[iFrame,0,:,:,adc_chan]
+#                 # Calculate shift
+#                 shift[:,iFrame], error, diffphase = register_translation_hybrid(image*win, offset_image*win, exponent = 0.3, upsample_factor = 100)
+#                 # Perform shifts
+#                 # Shift adc map
+#                 for iDet in range(0, imstack.shape[4]):
+#                     imstack_run[iFrame,0,:,:,iDet] = shift_subpixel(imstack[iFrame,0,:,:,iDet], dx = shift[1,iFrame], dy = shift[0, iFrame])
+#                  # Shift spectral data
+#                 for iDet in range(0, specstack.shape[4]):
+#                     specstack_run[iFrame,0,:,:,iDet] = shift_subpixel(specstack[iFrame,0,:,:,iDet], dx = shift[1,iFrame], dy = shift[0, iFrame])
+#                 # Update running average
+#                 image = (iFrame/(iFrame+1)) * image + (1/(iFrame+1)) * imstack_run[iFrame,0,:,:,adc_chan]
+#             # Shifts are defined as [y, x] where y is shift of imaging location with respect to positive y axis, similarly for x
+#             
+#             # Determining coordinates of fully defined box for original image
+# 
+#             shift_y = shift[0,:]
+#             shift_x = shift[1,:]
+#             
+#             # NOTE: scan_shape indices 2, 3 correspond to y, x
+#             y1 = int(round(np.max(shift_y[shift_y >= 0])+0.001, 0))
+#             y2 = int(round(imshape[2] + np.min(shift_y[shift_y <= 0])-0.001, 0))
+#             x1 = int(round(np.max(shift_x[shift_x >= 0])+0.001, 0))
+#             x2 = int(round(imshape[3] + np.min(shift_x[shift_x <= 0])-0.001, 0))
+#             
+#             boxfd = np.array([y1, y2, x1, x2])
+#             boxdims = (boxfd[1]-boxfd[0], boxfd[3]-boxfd[2])
+#             
+#             # Keep only preserved data
+#             self.adc_map = np.real(imstack_run[:,:,boxfd[0]:boxfd[1], boxfd[2]:boxfd[3],:])
+#             self.auger_map = np.real(specstack_run[:,:,boxfd[0]:boxfd[1], boxfd[2]:boxfd[3],:])
+#         else:
+#             self.adc_map = imstack
+#             self.auger_map = specstack
+            
+    def load_new_data(self):
+        if self.settings['use_preprocess']:
+            h_datasets = list(self.H.keys())
+            if 'adc_map_prep' in h_datasets:
+                self.adc_map_h5 = self.H['adc_map_prep']
+            if 'auger_map_prep' in h_datasets:
+                self.auger_map_h5 = self.H['auger_map_prep']
+            if 'ke_prep' in h_datasets:
+                self.ke = self.H['ke_prep'][:]
+        else:
+            self.adc_map_h5 = self.H['adc_map'] 
+            self.auger_map_h5 = self.H['auger_chan_map']
+            self.ke = self.H['ke'][:]
+            # Calculate relative detector efficiencies
+            print('calculating detector efficiencies...')
+            self.calculate_detector_efficiencies()
+        
+        # SEM image displays update
+        # FIX: Using auger stack for now to check correctness
+        print('setting SEM image stacks...')
+        self.imview_sem0_stack.setImage(np.transpose(self.auger_map_h5[:,:,:,:,0].mean(axis=1), (0,2,1)))
+        self.imview_sem1_stack.setImage(np.transpose(self.adc_map_h5[:,:,:,:,1].mean(axis=1), (0,2,1)))
+        print('setting SEM mean image...')
+        self.imview_sem0.setImage(np.transpose(self.auger_map_h5[:,:,:,:,0].mean(axis=(0,1))))
+        self.imview_sem1.setImage(np.transpose(self.adc_map_h5[:,:,:,:,1].mean(axis=(0,1))))
+        
+        # Update Scale Bar
+        self.on_change_scalebar()
+        
+        # Auger map and display update
+        print('updating auger map')
         self.update_current_auger_map()
     
     def on_change_ke_settings(self):
@@ -494,7 +512,7 @@ class AugerSpecMapView(DataBrowserView):
         
         # Extract data from the reference
         ke_med = self.ke[det_med, ke_med_map]
-        auger_map_sum = np.sum(self.auger_map[:,0,:,:,0:7],axis=(1,2))
+        auger_map_sum = np.sum(self.auger_map_h5[:,0,:,:,0:7],axis=(1,2))
         data = np.transpose(auger_map_sum)
         data_med = data[det_med, ke_med_map]
         
@@ -534,54 +552,106 @@ class AugerSpecMapView(DataBrowserView):
             sum_Hz += ff(x0)
         return sum_Hz/7.0
 
-    def compute_total_spectrum(self, data = None):
+    def compute_total_spectrum(self, data = np.array([])):
         from scipy import interpolate
         n_frames = self.ke.shape[1]
-        total_spec = np.zeros(n_frames*2, dtype=float)
-        ke_interp = np.linspace(self.ke.min(), self.ke.max(), n_frames*2, dtype=float)
-        for i in range(0,7):
+        self.total_spec = np.zeros(n_frames, dtype=float)
+        self.ke_interp = np.linspace(self.ke.min(), self.ke.max(), n_frames, dtype=float)
+        num_chans = self.current_auger_map.shape[-1]
+        for i in range(0,num_chans):
             x = self.ke[i,:]
-            if data==None:
+            if data.size==0:
                 y = self.current_auger_map[:,:,:,:,i].mean(axis=(1,2,3))
             else:
                 y = data[:,i]
             ff = interpolate.interp1d(x,y,bounds_error=False)
-            total_spec += ff(ke_interp)
-        return ke_interp, (total_spec/7.0)
+            self.total_spec += ff(self.ke_interp)
     
     def update_current_auger_map(self):
-        # Initialize current auger map dataset
-        self.current_auger_map = np.zeros(self.auger_map.shape)
-        self.current_auger_map[:] = self.auger_map
         
-        # Equalize detectors
-        if self.settings['equalize_detectors']:
-            self.current_auger_map /= self.det_eff
-        
-        #normalize counts by spec resolution, Hz/eV
-        
-        if self.settings['normalize_by_pass_energy']:
-            self.spec_plot.setLabel('left','Intensity (Hz/eV)')
-            spec_dispersion = 0.02  #Omicron SCA per-channel resolution/pass energy
-            if self.h_settings['CAE_mode']:
-                self.current_auger_map /= spec_dispersion * self.h_settings['pass_energy']
+        if self.settings['update_auger_map']:
+            # Initialize copy of auger map in memory (current_auger_map)
+            # this copy will be modified throughout the analysis (needs to be float to handle the math)
+            auger_shape = self.auger_map_h5.shape
+            if auger_shape[-1] == 10:
+                self.current_auger_map = np.array(self.auger_map_h5[:,:,:,:,0:7], dtype='float')
+                # Convert to Hz
+                time_per_px = self.auger_map_h5[:,:,:,:,8:9]* 25e-9 # units of 25ns converted to seconds
+                self.current_auger_map /= time_per_px # auger map now in Hz
             else:
-                #in CRR mode pass energy is KE / crr_ratio
-                self.current_auger_map *= self.h_settings['crr_ratio'] / (spec_dispersion * self.ke)
-        else:
-            self.spec_plot.setLabel('left','Intensity (Hz)')
+                self.current_auger_map = np.array(self.auger_map_h5, dtype='float')
+                # FIX: Auger map currently in counts since detectors have been summed but
+                # time channel was not stored
+            
+            # Equalize detectors (does not apply to preprocess since detector averaging is already done)
+            if self.settings['equalize_detectors'] and not(self.settings['use_preprocess']):
+                self.current_auger_map /= self.det_eff
+            
+            #normalize counts by spec resolution, Hz/eV
+            
+            if self.settings['normalize_by_pass_energy']:
+                self.spec_plot.setLabel('left','Intensity (Hz/eV)')
+                spec_dispersion = 0.02  #Omicron SCA per-channel resolution/pass energy
+                if self.h_settings['CAE_mode']:
+                    self.current_auger_map /= spec_dispersion * self.h_settings['pass_energy']
+                else:
+                    #in CRR mode pass energy is KE / crr_ratio
+                    self.current_auger_map *= self.h_settings['crr_ratio'] / (spec_dispersion * self.ke)
+            else:
+                self.spec_plot.setLabel('left','Intensity (Hz)')
+            
+            # Spatial smoothing before analysis in either case
+            sigma_xy = self.settings['spatial_smooth_sigma'] # In terms of px?
+            if sigma_xy > 0.0:
+                print('spatial smoothing...')
+                self.current_auger_map = gaussian_filter(self.current_auger_map, (0,0,sigma_xy,sigma_xy,0))
+            
+            if not self.settings['analysis_over_spectrum']:
+                self.perform_map_analysis()
+            
+            # Update displays
+            self.update_spectrum_display()
+            self.on_change_ke_settings() 
+    
+    def update_spectrum_display(self):
         
+        # Calculate the average spectrum over the image OR the ROI
+        if self.settings['spectrum_over_ROI']:
+            roi_auger_map = self.poly_roi.getArrayRegion(np.swapaxes(self.current_auger_map, 2, 3), self.im_auger, axes=(2,3))
+            roi_auger_masked = np.ma.array(roi_auger_map, mask = roi_auger_map == 0)
+            space_avg_spectra = roi_auger_masked.mean(axis=(1,2,3))
+        else:
+            space_avg_spectra = self.current_auger_map.mean(axis=(1,2,3))
+        
+        
+#             roi_slice, roi_tr = self.poly_roi.getArraySlice(self.auger_map, self.im_auger, axes=(3,2))
+#             print('ROI slice', roi_slice)
+#             print('Local Positions', self.poly_roi.getLocalHandlePositions())
+#             print('Scene Positions', self.poly_roi.getSceneHandlePositions())
+#                    
+            #print(mapped_coords)
+            
+        # compute and condition total spectrum
+        self.compute_total_spectrum(data = space_avg_spectra)
+        if self.settings['analysis_over_spectrum']:
+            self.perform_spectral_analysis()
+        
+        # Display all spectra
+        num_chans = self.current_auger_map.shape[-1]
+        self.total_plotline.setData(self.ke_interp, self.total_spec)
+        for ii in range(num_chans):
+            self.chan_plotlines[ii].setData(self.ke[ii,:], space_avg_spectra[:,ii])
+            self.chan_plotlines[ii].setVisible(True)
+        if num_chans < 7:
+            for jj in range(num_chans,7):
+                self.chan_plotlines[jj].setVisible(False)
+    
+    def perform_map_analysis(self):
         # Smoothing (presently performed for individual detectors)
         # FIX: MAY NEED A SUM MAP THAT ALIGNS DETECTOR CHANNELS AND SUMS
-        sigma_xy = self.settings['spatial_smooth_sigma'] # In terms of px?
         sigma_spec = self.settings['spectral_smooth_gauss_sigma'] # In terms of frames?
         width_spec = self.settings['spectral_smooth_savgol_width'] # In terms of frames?
         order_spec = self.settings['spectral_smooth_savgol_order']
-
-        # Always do spatial smoothing first
-        if sigma_xy > 0.0:
-            print('spatial smoothing...')
-            self.current_auger_map = gaussian_filter(self.current_auger_map, (0,0,sigma_xy,sigma_xy,0))
             
         if self.settings['spectral_smooth_type'] == 'Gaussian':
             print('spectral smoothing...')
@@ -595,7 +665,7 @@ class AugerSpecMapView(DataBrowserView):
         # NOTE: INSUFFICIENT SPATIAL SMOOTHING MAY GIVE INACCURATE OR EVEN INF RESULTS
         if not(self.settings['subtract_ke1'] == 'None'):
             print('Performing background subtraction...')
-            for iDet in range(7):
+            for iDet in range(self.current_auger_map.shape[-1]):
                 # Fit a power law to the background
                 # get background range
                 ke_min = self.settings['ke1_start']
@@ -621,54 +691,74 @@ class AugerSpecMapView(DataBrowserView):
                 
                 self.current_auger_map[:,0,:,:,iDet] -= bg
         
-        # For now, apply to the detector channels individually
         if self.settings['subtract_tougaard']:
             R_loss = self.settings['R_loss']
             E_loss = self.settings['E_loss']
             dE = self.ke[0,1] - self.ke[0,0]
-            kernel_size = 200
-            ke_kernel = np.arange(0, kernel_size*dE, abs(dE))
-            K_toug = (8.0/np.pi**2)*R_loss*E_loss**2 * ke_kernel / ((2.0*E_loss/np.pi)**2 + ke_kernel**2)**2
-            self.current_auger_map -= convolve1d(self.current_auger_map, K_toug[::-1], axis=0)
-        
-        # Update displays
-        self.update_spectrum_display()
-        self.on_change_ke_settings()
-        
+            # Always use a kernel out to 3 * E_loss to ensure enough feature size
+            ke_kernel = np.arange(0, 3*E_loss, abs(dE))
+            if not np.mod(len(ke_kernel),2) == 0:
+                ke_kernel = np.arange(0, 3*E_loss+dE, abs(dE))
+            self.K_toug = (8.0/np.pi**2)*R_loss*E_loss**2 * ke_kernel / ((2.0*E_loss/np.pi)**2 + ke_kernel**2)**2
+            # Normalize the kernel so the its area is equal to R_loss
+            self.K_toug /= (np.sum(self.K_toug) * dE)/R_loss
+            self.current_auger_map -= dE * correlate1d(self.current_auger_map, self.K_toug,
+                                                        mode='nearest', origin=-len(ke_kernel)//2, axis=0)
     
-    def update_spectrum_display(self):
-        if self.settings['spectrum_over_ROI']:
-#             roi_slice, roi_tr = self.poly_roi.getArraySlice(self.auger_map, self.im_auger, axes=(3,2))
-#             print('ROI slice', roi_slice)
-#             print('Local Positions', self.poly_roi.getLocalHandlePositions())
-#             print('Scene Positions', self.poly_roi.getSceneHandlePositions())
-#                    
-            roi_auger_map = self.poly_roi.getArrayRegion(np.swapaxes(self.current_auger_map, 2, 3), self.im_auger, axes=(2,3))
-            roi_auger_masked = np.ma.array(roi_auger_map, mask = roi_auger_map == 0)
-            roi_auger_mean = roi_auger_masked.mean(axis=(1,2,3))
+    def perform_spectral_analysis(self):
+        # FIX: Consolidate with map analysis
+        # Performs same analysis functions as the map, but just on the single (1D) total spectrum
+        
+        # Smoothing (presently performed for individual detectors)
+        sigma_spec = self.settings['spectral_smooth_gauss_sigma'] # In terms of frames?
+        width_spec = self.settings['spectral_smooth_savgol_width'] # In terms of frames?
+        order_spec = self.settings['spectral_smooth_savgol_order']
             
-            #print(mapped_coords)
-#             if self.settings['subtract_ke1_powerlaw']:
-#                 plot_data = self.subtract_background(*self.compute_total_spectrum(data = roi_auger_mean))
-#                 self.total_plotline.setData(*plot_data)
-#                 for ii in range(7):
-#                     self.chan_plotlines[ii].setData([],[])
-#             else:
-            self.total_plotline.setData(*self.compute_total_spectrum(data = roi_auger_mean))
-            for ii in range(7):
-                self.chan_plotlines[ii].setData(self.ke[ii,:], roi_auger_mean[:,ii])                                                
+        if self.settings['spectral_smooth_type'] == 'Gaussian':
+            print('spectral smoothing...')
+            self.total_spec = gaussian_filter(self.total_spec, sigma_spec)
+        elif self.settings['spectral_smooth_type'] == 'Savitzky-Golay':
+            # Currently always uses 4th order polynomial to fit
+            print('spectral smoothing...')
+            self.total_spec = savgol_filter(self.total_spec, 1 + 2*width_spec, order_spec)
+ 
+        # Background subtraction (implemented detector-wise currently)
+        # NOTE: INSUFFICIENT SPATIAL SMOOTHING MAY GIVE INACCURATE OR EVEN INF RESULTS
+        if not(self.settings['subtract_ke1'] == 'None'):
+            print('Performing background subtraction...')
+            # Fit a power law to the background
+            # get background range
+            ke_min = self.settings['ke1_start']
+            ke_max = self.settings['ke1_stop']
+            fit_map = (self.ke_interp > ke_min) * (self.ke_interp < ke_max)
+            ke_to_fit = self.ke_interp[fit_map]
+            spec_to_fit = self.total_spec[fit_map]
             
-        else:
-#             if self.settings['subtract_ke1_powerlaw']:
-#                 plot_data = self.subtract_background(*self.compute_total_spectrum())
-#                 self.total_plotline.setData(*plot_data)
-#                 for ii in range(7):
-#                     self.chan_plotlines[ii].setData([],[])
-#             else:
-            self.total_plotline.setData(*self.compute_total_spectrum())
-            for ii in range(7):
-                self.chan_plotlines[ii].setData(self.ke[ii,:],
-                                                self.current_auger_map[:,:,:,:,ii].mean(axis=(1,2,3)))
+            if self.settings['subtract_ke1'] == 'Power Law':
+                # Fit power law
+                A, m = self.fit_powerlaw(ke_to_fit, spec_to_fit)
+                bg = A * self.ke_interp**m
+            elif self.settings['subtract_ke1'] == 'Linear':
+                # Fit line (there may be an easier way for 1D case)
+                m, b = self.fit_line(ke_to_fit, spec_to_fit)
+                bg = m * self.ke_interp + b
+            
+            self.total_spec -= bg
+        
+        if self.settings['subtract_tougaard']:
+            R_loss = self.settings['R_loss']
+            E_loss = self.settings['E_loss']
+            dE = self.ke_interp[1] - self.ke_interp[0]
+            # Always use a kernel out to 3 * E_loss to ensure enough feature size
+            ke_kernel = np.arange(0, 3*E_loss, abs(dE))
+            if not np.mod(len(ke_kernel),2) == 0:
+                ke_kernel = np.arange(0, 3*E_loss+dE, abs(dE))
+            self.K_toug = (8.0/np.pi**2)*R_loss*E_loss**2 * ke_kernel / ((2.0*E_loss/np.pi)**2 + ke_kernel**2)**2
+            # Normalize the kernel so the its area is equal to R_loss
+            self.K_toug /= (np.sum(self.K_toug) * dE)/R_loss
+            self.total_spec -= dE * correlate1d(self.total_spec, self.K_toug,
+                                                        mode='nearest', origin=-len(ke_kernel)//2, axis=0)
+
 
     def fit_powerlaw(self, x, y):
         # Takes x data (1d array) and y data (Nd array)
@@ -700,7 +790,10 @@ class AugerSpecMapView(DataBrowserView):
         # B = C*y = {((X^T)X)^(-1) * (X^T)} y
         
         C = np.linalg.inv(X.T.dot(X)).dot(X.T)
-        B = C.dot(np.log10(np.swapaxes(y_lsp, -1, 1)))
+        if len(y.shape) < 2:
+            B = C.dot(np.log10(y_lsp))
+        else:
+            B = C.dot(np.log10(np.swapaxes(y_lsp, -1, 1)))
         return 10**B[0], B[1]
     
     def fit_line(self, x, y):
@@ -718,6 +811,9 @@ class AugerSpecMapView(DataBrowserView):
         # B = C*y = {((X^T)X)^(-1) * (X^T)} y
         
         C = np.linalg.inv(X.T.dot(X)).dot(X.T)
-        B = C.dot(np.swapaxes(y, -1, 1))
+        if len(y.shape) < 2:
+            B = C.dot(y)
+        else:
+            B = C.dot(np.swapaxes(y, -1, 1))
         return B[1], B[0]
         
