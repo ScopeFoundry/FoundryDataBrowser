@@ -36,7 +36,9 @@ app.load_view(ApdConfocal3dNPZView(app))
 from viewers.picoharp_npz import PicoHarpNPZView
 app.load_view(PicoHarpNPZView(app))
 
-from viewers.hyperspec_npz import HyperSpecNPZView
+from FoundryDataBrowser.viewers.picoharp_histogram_h5 import PicoHarpHistogramH5View
+app.load_view(PicoHarpHistogramH5View(app))
+
 app.load_view(HyperSpecNPZView(app))
 
 from viewers.hyperspec_npz import HyperSpecSpecMedianNPZView
@@ -89,8 +91,10 @@ app.load_view(AndorCCDReadoutNPZ(app))
 from viewers.hyperspec_cl_h5 import HyperSpecCLH5View
 app.load_view(HyperSpecCLH5View(app))
 
-from viewers.hyperspec_h5 import HyperSpecH5View
+from FoundryDataBrowser.viewers.hyperspec_h5 import HyperSpecH5View
 app.load_view(HyperSpecH5View(app))
 
+from FoundryDataBrowser.viewers.trpl_h5 import TRPLH5View
+app.load_view(TRPLH5View(app))
 
 sys.exit(app.exec_())

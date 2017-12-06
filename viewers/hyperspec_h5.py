@@ -7,7 +7,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
     name = 'hyperspec_h5'
     
     def is_file_supported(self, fname):
-        return "hyperspec_picam_mcl" in fname
+        return ("hyperspec_picam_mcl" in fname) or ("_m4_hyperspectral_2d_scan.h5" in fname)
     
     def load_data(self, fname):    
         self.dat = h5py.File(fname)
