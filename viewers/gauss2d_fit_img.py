@@ -148,11 +148,28 @@ def fitgaussian(data):
     
     
 class Gauss2DFitAPD_MCL_2dSlowScanView(Gauss2DFitImgView):
+    
+    name = 'gauss2d_fit_img_apd_mcl'
 
     def on_change_data_filename(self, fname):
         try:
             self.dat = h5py.File(fname, 'r')
             self.data = np.array(self.dat['measurement/APD_MCL_2DSlowScan/count_rate_map'][0,:,:].T) # grab first frame
+        except Exception as err:
+            self.data = np.zeros((10,10))
+            self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
+            raise(err)
+        self.imview.setImage(self.data, axes=dict(x=1,y=0))
+        self.on_change_rect_roi()
+        
+class Gauss2DFit_FiberAPD_View(Gauss2DFitImgView):
+    
+    name = 'gauss2d_fit_img_fiber_apd'
+
+    def on_change_data_filename(self, fname):
+        try:
+            self.dat = h5py.File(fname, 'r')
+            self.data = np.array(self.dat['measurement/fiber_apd_scan/count_rate_map'][0,:,:].T) # grab first frame
         except Exception as err:
             self.data = np.zeros((10,10))
             self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
