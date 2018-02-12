@@ -50,17 +50,18 @@ class HyperSpecH5View(HyperSpectralBaseView):
         self.display_image = getattr(self, self.settings['display_image'])
         self.hyperspec_data = getattr(self, self.settings['hyperspec_data'])
         
-        if self.settings['display_image'] == self.img_choices[1]:
-            cm = matplotlib_colormap_to_pg_colormap('rainbow')
-        else:
-            cm = matplotlib_colormap_to_pg_colormap('viridis')
-        self.imview.setColorMap(cm)
+#         if self.settings['display_image'] == self.img_choices[1]:
+#             cm = matplotlib_colormap_to_pg_colormap('rainbow')
+#         else:
+#             cm = matplotlib_colormap_to_pg_colormap('viridis')
+#         self.imview.setColorMap(cm)
         
         self.update_display()
 
         
     def is_file_supported(self, fname):
-        return "m4_hyperspectral_2d_scan" in fname
+        return np.any( [(meas_name in fname)
+                            for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan']])
 
     def load_data(self, fname):  
         if hasattr(self, 'dat'):
@@ -75,7 +76,10 @@ class HyperSpecH5View(HyperSpectralBaseView):
         
         
         self.dat = h5py.File(fname)
-        self.M = self.dat['measurement/m4_hyperspectral_2d_scan']                
+        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan']:
+            if meas_name in self.dat['measurement']:
+                self.M = self.dat['measurement'][meas_name]
+                     
         self.wls = np.array(self.M['wls'])
         self.spec_map = np.array(self.M['hyperspectral_map'][0,:,:,:])
         self.spec_map_norm = norm_map(self.spec_map)
@@ -101,7 +105,7 @@ def matplotlib_colormap_to_pg_colormap(colormap_name, n_ticks=16):
     
     returns:        (pgColormap) pyqtgraph colormap
     primary Usage:  <pg.ImageView>.setColorMap(pgColormap)
-    requires:       cmapToColormap by Sebastian Höfer 
+    requires:       cmapToColormap by Sebastian Hoefer 
                     https://github.com/pyqtgraph/pyqtgraph/issues/561
     '''
     from matplotlib import cm
@@ -114,7 +118,7 @@ def cmapToColormap(cmap, nTicks=16):
     Parameters:
     *cmap*: Cmap object. Imported from matplotlib.cm.*
     *nTicks*: Number of ticks to create when dict of functions is used. Otherwise unused.
-    author: Sebastian Höfer
+    author: Sebastian Hoefer
     """
     import collections
     # Case #1: a dictionary with 'red'/'green'/'blue' values as list of ranges (e.g. 'jet')
