@@ -88,8 +88,8 @@ app.load_view(AugerSpecMapView(app))
 from viewers.power_scan_npz import PowerScanNPZView
 app.load_view(PowerScanNPZView(app))
 
-from viewers.andor_ccd_readout_npz import AndorCCDReadoutNPZ
-app.load_view(AndorCCDReadoutNPZ(app))
+from viewers.andor_ccd_readout import AndorCCDReadout
+app.load_view(AndorCCDReadout(app))
 
 from viewers.hyperspec_cl_h5 import HyperSpecCLH5View
 app.load_view(HyperSpecCLH5View(app))
