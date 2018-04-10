@@ -29,7 +29,7 @@ class APD_MCL_2DSlowScanView(DataBrowserView):
             raise(err)
         
     def is_file_supported(self, fname):
-        return "APD_MCL_2DSlowScan.h5" in fname
+        return ("APD_MCL_2DSlowScan.h5" in fname)
 
 
 class APD_MCL_3DSlowScanView(DataBrowserView):
