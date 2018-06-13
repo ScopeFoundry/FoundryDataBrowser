@@ -2,8 +2,11 @@ from __future__ import absolute_import, print_function
 from ScopeFoundry.data_browser import DataBrowser
 import logging
 
-
-
+try:
+    import FoundryDataBrowser.viewers as viewers
+except:
+    import viewers
+    
 import sys
 
 app = DataBrowser(sys.argv)
@@ -38,7 +41,7 @@ app.load_view(ApdConfocal3dNPZView(app))
 from viewers.picoharp_npz import PicoHarpNPZView
 app.load_view(PicoHarpNPZView(app))
 
-from FoundryDataBrowser.viewers.picoharp_histogram_h5 import PicoHarpHistogramH5View
+from viewers.picoharp_histogram_h5 import PicoHarpHistogramH5View
 app.load_view(PicoHarpHistogramH5View(app))
 
 from viewers.hyperspec_npz import HyperSpecNPZView
