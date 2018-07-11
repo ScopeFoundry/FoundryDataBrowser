@@ -61,27 +61,33 @@ class HyperSpecH5View(HyperSpectralBaseView):
         
     def is_file_supported(self, fname):
         return np.any( [(meas_name in fname)
-                            for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan']])
+                            for meas_name in ['m4_hyperspectral_2d_scan', 'andor_hyperspec_scan', 'hyperspectral_2d_scan']])
 
     def load_data(self, fname):  
         if hasattr(self, 'dat'):
-            del self.dat
-            del self.M
-            del self.wls
-            del self.spec_map
-            del self.spec_map_norm
-            del self.integrated_count_map
-            del self.median_map
-            print('had dat')
-        
+            try:
+                del self.dat
+                del self.M
+                del self.wls
+                del self.spec_map
+                del self.spec_map_norm
+                del self.integrated_count_map
+                del self.median_map
+                print('had dat')
+            except:
+                pass
         
         self.dat = h5py.File(fname)
-        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan']:
+        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan']:
             if meas_name in self.dat['measurement']:
                 self.M = self.dat['measurement'][meas_name]
                      
         self.wls = np.array(self.M['wls'])
-        self.spec_map = np.array(self.M['hyperspectral_map'][0,:,:,:])
+        if 'hyperspectral_map' in self.M:
+            self.spec_map = np.array(self.M['hyperspectral_map'][0,:,:,:])
+        elif 'spec_map' in self.M:
+            self.spec_map = np.array(self.M['spec_map'][0,:,:,:])
+        
         self.spec_map_norm = norm_map(self.spec_map)
         self.integrated_count_map = self.spec_map.sum(axis=2)
         self.median_map = spectral_median_map(map_=self.spec_map, wls=self.wls) 
