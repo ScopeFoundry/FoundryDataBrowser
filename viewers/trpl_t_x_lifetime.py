@@ -3,7 +3,10 @@ import numpy as np
 import pyqtgraph as pg
 from qtpy import QtWidgets
 from scipy.ndimage.filters import gaussian_filter
-
+import json
+import os
+import time
+from ScopeFoundry.helper_funcs import sibling_path
 
 def t_x_calc(time_array, time_trace_map, kk_start, kk_stop, x=1-0.36787944117, bgsub=True):
 
@@ -47,7 +50,7 @@ class TRPL_t_x_lifetime_BaseView(HyperSpectralBaseView):
         self.settings.New('e_exp', dtype=float, initial=1.0)
         self.settings.New('auto_recompute', dtype=bool, initial=True)
         self.settings.New('spatial_blur', dtype=bool, initial=False)
-        self.settings.New('blur_sigma', dtype=float, initial=True)
+        self.settings.New('blur_sigma', dtype=float, initial=1.0)
         self.settings.New('map_display', dtype=str, initial='tau_x', 
                           choices=('tau_x', 'total_counts'))
         
@@ -55,6 +58,10 @@ class TRPL_t_x_lifetime_BaseView(HyperSpectralBaseView):
         self.compute_button = QtWidgets.QPushButton("Go")
         self.settings_ui.layout().addRow("Compute:", self.compute_button)
         self.compute_button.clicked.connect(self.compute_lifetime_map)
+        
+        self.save_notebook_button = QtWidgets.QPushButton("Save")
+        self.settings_ui.layout().addRow("Save to IPYNB", self.save_notebook_button)
+        self.save_notebook_button.clicked.connect(self.save_to_ipy_notebook)
         
         #self.splitter.insertWidget(0, self.settings_ui )
         self.dockarea.addDock(name='settings', widget=self.settings_ui, position='left')
@@ -128,6 +135,38 @@ class TRPL_t_x_lifetime_BaseView(HyperSpectralBaseView):
     
         self.update_display()
         
+    def save_to_ipy_notebook(self, nb_fname=None):
+        with open(sibling_path(__file__,"trpl_t_x_lifetime_h5_template.ipynb")) as fp:
+            template_json = json.load(fp)
+                
+        settings_src_template = """settings = dict(
+    filename = "{filename}",
+    kk_start = {kk_start},
+    kk_stop = {kk_stop},
+    bg_sub = {bg_sub},
+    e_exp = {e_exp},
+    spatial_blur = {spatial_blur},
+    blur_sigma = {blur_sigma},
+    test_points = []
+)"""
+        settings_dict = dict(
+            filename = self.dat.filename,
+            )
+        settings_dict.update(**self.settings)
+        new_source = settings_src_template.format(**settings_dict).splitlines(True)
+        
+        template_json['cells'][2]['source'] = new_source
+        
+        if not nb_fname:
+            nb_fname = os.path.splitext(self.dat.filename)[0] + ".ipynb"
+            if os.path.exists(nb_fname):
+                timestamp = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
+                nb_fname = os.path.splitext(self.dat.filename)[0] + "_" + timestamp +".ipynb"
+        
+        print('saving to', nb_fname)
+        
+        with open(nb_fname, 'w') as fp:
+            json.dump(template_json, fp)
         
 class TRPL_t_x_lifetime_NPZView(TRPL_t_x_lifetime_BaseView):
     name = 'trpl_t_x_lifetime_npz'
@@ -196,7 +235,7 @@ class TRPL_t_x_lifetime_H5_View(TRPL_t_x_lifetime_BaseView):
     def load_data(self, fname):
         import h5py
         #self.dat = np.load(fname)
-        self.dat = h5py.File(fname)
+        self.dat = h5py.File(fname, 'r')
         self.M = self.dat['measurement/Picoharp_MCL_2DSlowScan']
         
         cr0 = self.dat['hardware/picoharp/settings'].attrs['count_rate0']
