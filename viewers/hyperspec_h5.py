@@ -81,12 +81,17 @@ class HyperSpecH5View(HyperSpectralBaseView):
         for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan']:
             if meas_name in self.dat['measurement']:
                 self.M = self.dat['measurement'][meas_name]
-                     
-        self.wls = np.array(self.M['wls'])
+            
         if 'hyperspectral_map' in self.M:
             self.spec_map = np.array(self.M['hyperspectral_map'][0,:,:,:])
         elif 'spec_map' in self.M:
             self.spec_map = np.array(self.M['spec_map'][0,:,:,:])
+         
+        try:
+            self.wls = np.array(self.M['wls'])
+        except Exception as err:
+            print("failed to find wls array")
+            self.wls = np.arange(self.spec_map.shape[-1])
         
         self.spec_map_norm = norm_map(self.spec_map)
         self.integrated_count_map = self.spec_map.sum(axis=2)
