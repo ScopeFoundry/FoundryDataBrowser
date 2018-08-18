@@ -1,6 +1,16 @@
+Windows:
+
 conda remove --name pyinstaller --all
 cd FoundryDataBrowser
 rmdir /s build dist
 conda env create -f pyinstaller_win32.yml
 activate pyinstaller
 pyinstaller foundry_data_browser_win32.spec
+
+Mac:
+
+conda create -n databrowser_pyinstaller python=3.6
+conda activate databrowser_pyinstaller
+conda install h5py pyqt numpy scipy nomkl ipython qtconsole qtpy pyqtgraph pillow matplotlib scikit-image
+pip install ScopeFoundry
+pyinstaller foundry_data_browser_mac.spec
