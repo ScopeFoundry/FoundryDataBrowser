@@ -61,7 +61,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
         
     def is_file_supported(self, fname):
         return np.any( [(meas_name in fname)
-                            for meas_name in ['m4_hyperspectral_2d_scan', 'andor_hyperspec_scan', 'hyperspectral_2d_scan']])
+                            for meas_name in ['m4_hyperspectral_2d_scan', 'andor_hyperspec_scan', 'hyperspectral_2d_scan', 'fiber_winspec_scan']])
 
     def load_data(self, fname):  
         if hasattr(self, 'dat'):
@@ -78,15 +78,21 @@ class HyperSpecH5View(HyperSpectralBaseView):
                 pass
         
         self.dat = h5py.File(fname)
-        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan']:
+        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan', 'fiber_winspec_scan']:
             if meas_name in self.dat['measurement']:
                 self.M = self.dat['measurement'][meas_name]
-                     
-        self.wls = np.array(self.M['wls'])
         if 'hyperspectral_map' in self.M:
             self.spec_map = np.array(self.M['hyperspectral_map'][0,:,:,:])
         elif 'spec_map' in self.M:
             self.spec_map = np.array(self.M['spec_map'][0,:,:,:])
+            if len(self.spec_map.shape) > 3:
+                self.spec_map = np.squeeze(self.spec_map)
+        try:           
+            self.wls = np.array(self.M['wls'])
+        except:
+            print("missing wavelength array")
+            self.wls = np.arange(self.spec_map.shape[-1], dtype=float)
+
         
         self.spec_map_norm = norm_map(self.spec_map)
         self.integrated_count_map = self.spec_map.sum(axis=2)
