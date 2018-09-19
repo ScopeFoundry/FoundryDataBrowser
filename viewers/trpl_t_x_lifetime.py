@@ -236,7 +236,9 @@ class TRPL_t_x_lifetime_H5_View(TRPL_t_x_lifetime_BaseView):
         import h5py
         #self.dat = np.load(fname)
         self.dat = h5py.File(fname, 'r')
-        self.M = self.dat['measurement/Picoharp_MCL_2DSlowScan']
+        
+        for measure_name in ['Picoharp_MCL_2DSlowScan', 'fiber_picoharp_scan']:
+            self.M = self.dat['measurement'][measure_name]
         
         cr0 = self.dat['hardware/picoharp/settings'].attrs['count_rate0']
         rep_period_s = 1.0/cr0
