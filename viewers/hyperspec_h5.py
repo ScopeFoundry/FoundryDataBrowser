@@ -61,7 +61,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
         
     def is_file_supported(self, fname):
         return np.any( [(meas_name in fname)
-                            for meas_name in ['m4_hyperspectral_2d_scan', 'andor_hyperspec_scan', 'hyperspectral_2d_scan', 'fiber_winspec_scan']])
+                            for meas_name in ['m4_hyperspectral_2d_scan', 'andor_hyperspec_scan', 'hyperspectral_2d_scan', 'fiber_winspec_scan','asi_hyperspec_scan']])
 
     def load_data(self, fname):  
         if hasattr(self, 'dat'):
@@ -78,7 +78,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
                 pass
         
         self.dat = h5py.File(fname)
-        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan', 'fiber_winspec_scan']:
+        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan', 'fiber_winspec_scan','asi_hyperspec_scan']:
             if meas_name in self.dat['measurement']:
                 self.M = self.dat['measurement'][meas_name]
 

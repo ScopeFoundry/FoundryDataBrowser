@@ -67,6 +67,9 @@ from viewers.APD_MCL_2DSlowScanView import APD_MCL_2DSlowScanView, APD_MCL_3DSlo
 app.load_view(APD_MCL_2DSlowScanView(app))
 app.load_view(APD_MCL_3DSlowScanView(app))
 
+from viewers.APD_ASI_2DSlowScanView import APD_ASI_2DSlowScanView
+app.load_view(APD_ASI_2DSlowScanView(app))
+
 from viewers.WinSpecMCL2DSlowScanView import WinSpecMCL2DSlowScanView
 app.load_view(WinSpecMCL2DSlowScanView(app))
 
