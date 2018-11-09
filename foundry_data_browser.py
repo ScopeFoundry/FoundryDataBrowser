@@ -106,4 +106,7 @@ app.load_view(HyperSpecH5View(app))
 from viewers.trpl_h5 import TRPLH5View
 app.load_view(TRPLH5View(app))
 
+from viewers.power_spec_logger_view import PowerSpectrumLoggerView
+app.load_view(PowerSpectrumLoggerView(app))
+
 sys.exit(app.exec_())
