@@ -91,8 +91,8 @@ class AugerSpecMapView(DataBrowserView):
         self.settings.get_lq('mean_spectrum_only').add_listener(self.on_change_mean_spectrum_only)
         
         # Make plots on white background
-        pg.setConfigOption('background', 'w')
-        pg.setConfigOption('foreground', 'k')
+        #pg.setConfigOption('background', 'w')
+        #pg.setConfigOption('foreground', 'k')
         
         self.ui = self.dockarea = dockarea.DockArea()
         
