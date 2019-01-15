@@ -38,7 +38,7 @@ class PowerScanH5View(DataBrowserView):
         self.power_plot = self.graph_layout.addPlot()
         self.power_plot.setLogMode(x=True, y=True)
         
-        self.power_plotcurve = self.power_plot.plot([1],[1], name='Data')
+        self.power_plotcurve = self.power_plot.plot([1],[1], name='Data',symbol='+',symbolBrush='m')
         
         self.power_plot_current_pos = self.power_plot.plot(symbol='o')
 
@@ -80,8 +80,8 @@ class PowerScanH5View(DataBrowserView):
                 # to fix issues with log-log plotting, we shift negative data
                 if np.any(self.power_plot_y < 0): 
                     self.power_plot_y -= np.min(self.power_plot_y) - 1
-                self.wls = H['wls'] 
-                self.spectra = H['spectra']
+                self.wls = np.array(H['wls']) 
+                self.spectra = np.array(H['spectra'])
                     
             elif 'picoharp_histograms' in H:
                 self.picoharp_histograms = np.array(H['picoharp_histograms'], dtype=float)
