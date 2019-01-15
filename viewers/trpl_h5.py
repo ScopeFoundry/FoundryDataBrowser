@@ -9,11 +9,18 @@ class TRPLH5View(HyperSpectralBaseView):
     name = 'trpl_scan_h5'
     
     def is_file_supported(self, fname):
-        return "_trpl_scan.h5" in fname
+        for name in ["_trpl_2d_scan.h5", "_trpl_scan.h5"]:
+            if name in fname: return True
+        return False
 
     def load_data(self, fname):
         self.file = h5py.File(fname)
-        self.H = self.file['measurement/trpl_scan/']
+        if 'measurement/trpl_scan/' in self.file:
+            self.H = self.file['measurement/trpl_scan/']
+        elif 'measurement/trpl_2d_scan/' in self.file:
+            self.H = self.file['measurement/trpl_2d_scan/']
+        else:
+            raise ValueError("Measurement group not found in h5 file")
         self.S = self.file['hardware/picoharp/settings'].attrs
         
         try:
