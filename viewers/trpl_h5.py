@@ -3,6 +3,7 @@ import numpy as np
 import h5py
 from qtpy import QtWidgets
 import pyqtgraph as pg
+from scipy.optimize import least_squares
 
 
 
@@ -49,31 +50,63 @@ class TRPLH5View(HyperSpectralBaseView):
         self.hyperspec_data = time_trace_map
         self.display_image = integrated_count_map
         self.spec_x_array = time_array
+        
+        print('load_data',self.hyperspec_data.shape)
 
         self.file.close()
         
     def post_load(self):
-        self.recalc_taue_map() 
-                
+        self.recalc_taue_map()
+        self.roll_offset.change_min_max(0,self.spec_x_array.shape[0])
+        self.hyperspec_data = np.roll(self.hyperspec_data, self.settings['roll_offset'], -1)
+        self.on_change_roll_max_to()
+            
+         
     def scan_specific_setup(self):
         # set spectral plot to be semilog-y
         self.spec_plot.setLogMode(False, True)
         self.spec_plot.setLabel('left', 'Intensity', units='counts')
         self.spec_plot.setLabel('bottom', 'time', units='ns')
         
-        self.fit_on = self.settings.New('fit_on', str, initial = 'circ',
+        self.fit_on = self.settings.New('fit_on', str, initial = 'rect_roi',
                                           choices = ('None', 'rect_roi', 'circ'))
         self.fit_on.add_listener(self.on_change_fit_on)
-        self.fit_line = self.spec_plot.plot(pen='g')
+        self.fit_line = self.spec_plot.plot(y=[0,2,1,3,2],pen='g')
 
-        self.fit_option = self.settings.New('fit_option',str,initial='poly_fit',
-                                             choices = ('poly_fit','tau_x_calc'))
+        self.fit_option = self.settings.New('fit_option',str,initial='biexponential',
+                                             choices = ('poly_fit','tau_x_calc', 'biexponential'))
         self.fit_option.add_listener(self.on_change_fit_option)
         
         self.fit_map_pushButton = QtWidgets.QPushButton(text = 'fit_map')
         self.settings_widgets.append(self.fit_map_pushButton)
         self.fit_map_pushButton.clicked.connect(lambda x:self.fit_map(update_display_image=True, fit_option=None))  
         
+        self.roll_offset = self.settings.New('roll_offset', int, initial=0)
+        self.roll_offset.add_listener(self.on_change_roll_offset)
+        
+        self.use_roll_max_to = self.settings.New('use_roll_max_to', bool, initial = True)
+        self.roll_max_to = self.settings.New('roll_max_to', initial = 1)
+        self.use_roll_max_to.add_listener(self.on_change_roll_max_to)
+        self.roll_max_to.add_listener(self.on_change_roll_max_to)         
+        
+    def on_change_roll_max_to(self):
+        '''
+        Note: might call a funciton which reloads the data
+        '''        
+        if self.use_roll_max_to.val:
+            target_x = self.roll_max_to.val
+            x,y = self.get_xy(np.s_[:,:],apply_use_x_slice=False)
+            delta_index = np.argmin((x-target_x)**2) -  y.argmax()
+            new_roll_offset = (self.roll_offset.val + delta_index) % x.shape[0]
+            if new_roll_offset != self.roll_offset.val:
+                self.roll_offset.update_value(new_roll_offset)
+
+    def on_change_roll_offset(self):
+        '''
+        reloads data, the actual rolling is done thereafter in self.post_load()!
+        '''
+        fname = self.databrowser.settings['data_filename']
+        self.on_change_data_filename(fname)
         
     def recalc_taue_map(self):
         self.fit_map(fit_option='tau_x_calc')
@@ -106,14 +139,16 @@ class TRPLH5View(HyperSpectralBaseView):
         else:
             return
         fit_func_dict = {'poly_fit':  self.poly_fit_xy,
-                         'tau_x_calc': self.tau_x_calc_xy}
+                         'tau_x_calc': self.tau_x_calc_xy,
+                         'biexponential': self.fit_biexponential_xy}
         fit_option = self.settings['fit_option']
         fit_func_dict[fit_option](x,y)
         
     def fit_map(self, update_display_image = True, fit_option = None):
         time_array, time_trace_map = self.get_xhyperspec_data(apply_use_x_slice=True)
         fit_func_dict = {'poly_fit':  self.poly_fit_map,
-                         'tau_x_calc': self.tau_x_calc_map}
+                         'tau_x_calc': self.tau_x_calc_map,
+                         'biexponential': self.fit_biexponential_map}
         if fit_option == None:
             fit_option = self.settings['fit_option']
         fit_map = fit_func_dict[fit_option](time_array, time_trace_map)
@@ -130,7 +165,6 @@ class TRPLH5View(HyperSpectralBaseView):
         self.x_slice_InfLineLabel.setText(label_text)
         self.fit_line.setData(x,y)
         return x,y
-        #print('tau_x_calc', tau)
 
     def tau_x_calc_map(self, time_array, time_trace_map):
         return tau_x_calc_map(time_array - time_array.min(), time_trace_map)
@@ -146,8 +180,66 @@ class TRPLH5View(HyperSpectralBaseView):
         
     def poly_fit_map(self, time_array, time_trace_map):
         coefs_map = poly_fit_map(time_array=time_array-time_array.min(), time_trace_map=time_trace_map)
-        print(coefs_map.shape)
         return -1/coefs_map[:,:,0]
+    
+    def fit_biexponential_xy(self,x,y):
+        bounds = ([0,   0,  0,   1.0],
+                  [1e10,5.1,1e10,200])
+        
+        bi_initial = [0.1, 2.5, 10, 6] 
+        
+        t = x - x.min()
+                
+        bi_res = least_squares(fun = biexponential_residuals,
+                                 bounds  = bounds,
+                                 x0 = bi_initial, 
+                                 args = (t, y))
+
+        A0,tau0,A1,tau1 = bi_res.x
+        tau_m = (A0*tau0 + A1*tau1) / (A0 + A1) 
+        line0 = 'A_0 ={0:1.0f} , tau_0 ={1:1.2f}ns\n'.format(*bi_res.x[0:2].tolist())
+        line1 = 'A_1 ={0:1.0f} , tau_1 ={1:1.2f}ns\n'.format(*bi_res.x[2:].tolist())
+        line2 = 'tau_m ={0:1.2f}ns'.format(tau_m)        
+        label_text = line0 + line1 + line2
+        self.x_slice_InfLineLabel.setText(label_text)
+        
+        fit = biexponential(bi_res.x, t)
+        self.fit_line.setData(x,fit)
+        
+    def fit_biexponential_map(self,time_array, time_trace_map):
+        x,time_trace_map = self.get_xhyperspec_data(apply_use_x_slice=True)
+        bounds = ([0,   0,  0,   1.0],
+                  [1e10,5.1,1e10,200])
+        bi_initial = [0.1, 2.5, 10, 6] 
+
+        t = x - x.min()
+        bi_res_map = biexponential_map(t, time_trace_map, bi_initial, bounds, axis=-1)
+        A0 = bi_res_map[:,:,0]
+        tau0 = bi_res_map[:,:,1]
+        A1 = bi_res_map[:,:,2]
+        tau1 = bi_res_map[:,:,3]
+        for key,image in zip(['A0_map','tau0_map','A1_map','tau1_map'],[A0,tau0,A1,tau1]):
+            self.add_display_image(key, image)        
+        taum = (A0*tau0 + A1*tau1) / (A0+A1)
+        return(taum)
+
+def biexponential(params, t):
+    '''
+    params = [ A0, tau0, A1, tau1]    
+    '''
+    return params[0]*np.exp(-t/params[1]) + params[2]*np.exp(-t/params[3])
+def biexponential_residuals(params, t, data):
+    return biexponential(params,t) - data 
+def fit_biexpontial(y, t,  bi_initial, bounds):
+    bi_res = least_squares(fun = biexponential_residuals,
+                                 bounds  = bounds,
+                                 x0 = bi_initial, 
+                                 args = (t, y))
+    return bi_res.x    
+def biexponential_map(t, time_trace_map, bi_initial, bounds, axis=-1):
+    kwargs = dict(t=t, bi_initial=bi_initial, bounds=bounds)
+    return np.apply_along_axis(fit_biexpontial, axis=axis, arr=np.squeeze(time_trace_map), **kwargs)
+          
 
 def poly_fit(y,x,deg=1):
         mask = y > 0
