@@ -4,6 +4,7 @@ import h5py
 from qtpy import QtWidgets
 import pyqtgraph as pg
 from scipy.optimize import least_squares
+from ScopeFoundry.logged_quantity import LQCollection
 
 
 
@@ -11,9 +12,8 @@ class TRPLH5View(HyperSpectralBaseView):
 
     name = 'trpl_scan_h5'
     
-        
     def is_file_supported(self, fname):
-        for name in ["_trpl_2d_scan.h5", "_trpl_scan.h5"]:
+        for name in ["_trpl_2d_scan.h5", "_trpl_scan.h5", "Picoharp_MCL_2DSlowScan.h5"]:
             if name in fname: return True
         return False
 
@@ -21,7 +21,8 @@ class TRPLH5View(HyperSpectralBaseView):
         self.file = h5py.File(fname)
         
         load_success = False
-        for measure_path in ['measurement/trpl_scan/', 'measurement/trpl_2d_scan/']:
+        for measure_path in ['measurement/trpl_scan/', 'measurement/trpl_2d_scan/', 
+                             'measurement/Picoharp_MCL_2DSlowScan/', 'measurement/APD_MCL_2DSlowScan/']:
             if  measure_path in self.file:
                 self.H = self.file[measure_path]
                 load_success = True
@@ -87,7 +88,44 @@ class TRPLH5View(HyperSpectralBaseView):
         self.use_roll_max_to = self.settings.New('use_roll_max_to', bool, initial = True)
         self.roll_max_to = self.settings.New('roll_max_to', initial = 1)
         self.use_roll_max_to.add_listener(self.on_change_roll_max_to)
-        self.roll_max_to.add_listener(self.on_change_roll_max_to)         
+        self.roll_max_to.add_listener(self.on_change_roll_max_to)
+        
+
+        self.biexponential_settings = BS = LQCollection()
+
+        BS.New('A0_initial', initial = 0.1)
+        BS.New('tau0_initial', initial = 2.5)
+        BS.New('A1_initial', initial = 10)
+        BS.New('tau1_initial', initial = 6)
+        
+        BS.New('use_bounds', dtype = bool, initial = False)
+        BS.New('A0_lower_bound', initial = 0)        
+        BS.New('A0_upper_bound', initial = 1e10)        
+        BS.New('tau0_lower_bound', initial = 0)
+        BS.New('tau0_upper_bound', initial = 1e4)
+        BS.New('A1_lower_bound', initial = 0)        
+        BS.New('A1_upper_bound', initial = 1e10)        
+        BS.New('tau1_lower_bound', initial = 0)
+        BS.New('tau1_upper_bound', initial = 1e4)      
+        
+        for i in ['A0','tau0','A1','tau1']:
+            getattr(BS, i+'_lower_bound').add_listener(self.set_biexponential_fit_bounds)
+            getattr(BS, i+'_upper_bound').add_listener(self.set_biexponential_fit_bounds)
+            getattr(BS, i+'_initial').add_listener(self.set_biexponential_fit_initials)
+        BS.use_bounds.add_listener(self.set_biexponential_fit_bounds)
+        self.set_biexponential_fit_bounds()
+        self.set_biexponential_fit_initials()
+                    
+        self.biexponential_settings_ui = self.biexponential_settings.New_UI()
+        self.dockarea.addDock(name='biexponential fitting settings', widget=self.biexponential_settings_ui,
+                                   position='below', relativeTo=self.image_dock)
+        
+        self.set_last_biexponential_res_as_initials_pushButton = QtWidgets.QPushButton(text = 'use last result as initials')
+        self.biexponential_settings_ui.layout().addWidget(self.set_last_biexponential_res_as_initials_pushButton)
+        self.set_last_biexponential_res_as_initials_pushButton.clicked.connect(self.set_last_biexponential_res_as_initials)  
+        
+        self.image_dock.raiseDock()  
+        
         
     def on_change_roll_max_to(self):
         '''
@@ -182,11 +220,34 @@ class TRPLH5View(HyperSpectralBaseView):
         coefs_map = poly_fit_map(time_array=time_array-time_array.min(), time_trace_map=time_trace_map)
         return -1/coefs_map[:,:,0]
     
-    def fit_biexponential_xy(self,x,y):
-        bounds = ([0,   0,  0,   1.0],
-                  [1e10,5.1,1e10,200])
+    def set_biexponential_fit_bounds(self):
+        if self.biexponential_settings['use_bounds']:
+            lower_bounds = []
+            for bound in ['A0','tau0','A1','tau1']:
+                lower_bounds.append(self.biexponential_settings[bound+'_lower_bound'])
+            upper_bounds = []
+            for bound in ['A0','tau0','A1','tau1']:
+                upper_bounds.append(self.biexponential_settings[bound+'_upper_bound'])
+        else:
+            lower_bounds = [-np.inf,-np.inf,-np.inf,-np.inf]
+            upper_bounds = [ np.inf, np.inf, np.inf, np.inf]
+        self.biexponential_fit_bounds = (lower_bounds,upper_bounds)
+    
+    def set_biexponential_fit_initials(self):
+        biexponential_fit_initials = []
+        for i in ['A0','tau0','A1','tau1']:
+            biexponential_fit_initials.append(self.biexponential_settings[i+'_initial'])
+        self.biexponential_fit_initials = biexponential_fit_initials
         
-        bi_initial = [0.1, 2.5, 10, 6] 
+    def set_last_biexponential_res_as_initials(self):
+        for i,val in zip(['A0','tau0','A1','tau1'],self.current_bi_exp_fit_res):
+            self.biexponential_settings[i+'_initial'] = val
+        
+
+    
+    def fit_biexponential_xy(self,x,y):
+        bounds = self.biexponential_fit_bounds
+        bi_initial = self.biexponential_fit_initials
         
         t = x - x.min()
                 
@@ -197,20 +258,21 @@ class TRPLH5View(HyperSpectralBaseView):
 
         A0,tau0,A1,tau1 = bi_res.x
         tau_m = (A0*tau0 + A1*tau1) / (A0 + A1) 
-        line0 = 'A_0 ={0:1.0f} , tau_0 ={1:1.2f}ns\n'.format(*bi_res.x[0:2].tolist())
-        line1 = 'A_1 ={0:1.0f} , tau_1 ={1:1.2f}ns\n'.format(*bi_res.x[2:].tolist())
+        line0 = 'A_0 ={0:1.0f}, tau_0 ={1:1.2f}ns\n'.format(*bi_res.x[0:2].tolist())
+        line1 = 'A_1 ={0:1.0f}, tau_1 ={1:1.2f}ns\n'.format(*bi_res.x[2:].tolist())
         line2 = 'tau_m ={0:1.2f}ns'.format(tau_m)        
         label_text = line0 + line1 + line2
         self.x_slice_InfLineLabel.setText(label_text)
         
         fit = biexponential(bi_res.x, t)
         self.fit_line.setData(x,fit)
+        self.current_bi_exp_fit_res = bi_res.x
+
         
     def fit_biexponential_map(self,time_array, time_trace_map):
         x,time_trace_map = self.get_xhyperspec_data(apply_use_x_slice=True)
-        bounds = ([0,   0,  0,   1.0],
-                  [1e10,5.1,1e10,200])
-        bi_initial = [0.1, 2.5, 10, 6] 
+        bounds = self.biexponential_fit_bounds
+        bi_initial = self.biexponential_fit_initials
 
         t = x - x.min()
         bi_res_map = biexponential_map(t, time_trace_map, bi_initial, bounds, axis=-1)
