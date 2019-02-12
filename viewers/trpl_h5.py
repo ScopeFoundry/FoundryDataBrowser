@@ -123,7 +123,6 @@ class TRPLH5View(HyperSpectralBaseView):
         self.set_last_biexponential_res_as_initials_pushButton = QtWidgets.QPushButton(text = 'use last result as initials')
         self.biexponential_settings_ui.layout().addWidget(self.set_last_biexponential_res_as_initials_pushButton)
         self.set_last_biexponential_res_as_initials_pushButton.clicked.connect(self.set_last_biexponential_res_as_initials)  
-        
         self.image_dock.raiseDock()  
         
         
@@ -257,6 +256,7 @@ class TRPLH5View(HyperSpectralBaseView):
                                  args = (t, y))
 
         A0,tau0,A1,tau1 = bi_res.x
+        A0,tau0,A1,tau1 = order_bi_exp_components(A0, tau0, A1, tau1)
         tau_m = (A0*tau0 + A1*tau1) / (A0 + A1) 
         line0 = 'A_0 ={0:1.0f}, tau_0 ={1:1.2f}ns\n'.format(*bi_res.x[0:2].tolist())
         line1 = 'A_1 ={0:1.0f}, tau_1 ={1:1.2f}ns\n'.format(*bi_res.x[2:].tolist())
@@ -280,6 +280,7 @@ class TRPLH5View(HyperSpectralBaseView):
         tau0 = bi_res_map[:,:,1]
         A1 = bi_res_map[:,:,2]
         tau1 = bi_res_map[:,:,3]
+        A0,tau0,A1,tau1 = order_bi_exp_components(A0, tau0, A1, tau1)
         for key,image in zip(['A0_map','tau0_map','A1_map','tau1_map'],[A0,tau0,A1,tau1]):
             self.add_display_image(key, image)        
         taum = (A0*tau0 + A1*tau1) / (A0+A1)
@@ -301,7 +302,30 @@ def fit_biexpontial(y, t,  bi_initial, bounds):
 def biexponential_map(t, time_trace_map, bi_initial, bounds, axis=-1):
     kwargs = dict(t=t, bi_initial=bi_initial, bounds=bounds)
     return np.apply_along_axis(fit_biexpontial, axis=axis, arr=np.squeeze(time_trace_map), **kwargs)
-          
+def order_bi_exp_components(A0,tau0,A1,tau1):
+    '''
+    ensures that tau0 > tau1, also swaps values in A1 and A0 if necessary.
+    '''
+    A0 = np.atleast_1d(A0)
+    tau0 = np.atleast_1d(tau0)
+    A1 = np.atleast_1d(A1)
+    tau1 = np.atleast_1d(tau1) 
+    mask = tau0 > tau1
+    mask_ = np.invert(mask)
+    new_tau0 = tau0.copy()
+    new_tau0[mask_] = tau1[mask_]
+    tau1[mask_] = tau0[mask_]
+    new_A0 = A0.copy()
+    new_A0[mask_] = A1[mask_]
+    A1[mask_] = A0[mask_]
+    try:
+        new_A0 = np.asscalar(new_A0)
+        new_tau0 = np.asscalar(new_tau0)
+        A1 = np.asscalar(A1)
+        tau1 = np.asscalar(tau1)
+    except ValueError:
+        pass
+    return new_A0,new_tau0,A1,tau1 #Note, generally A1,tau1 also modified.
 
 def poly_fit(y,x,deg=1):
         mask = y > 0
@@ -321,6 +345,8 @@ def tau_x_calc(time_trace, time_array, x=0.6321205588300001):
 def tau_x_calc_map(time_array, time_trace_map, x=0.6321205588300001, axis=-1):
     kwargs = dict(time_array=time_array, x=x)
     return np.apply_along_axis(tau_x_calc, axis=axis, arr=np.squeeze(time_trace_map), **kwargs)
+
+
 
 """class TRPL3dNPZView(HyperSpectralBaseView):
 
