@@ -18,12 +18,12 @@ class HyperSpecH5View(HyperSpectralBaseView):
         return np.any( [(meas_name in fname) 
                         for meas_name in ['m4_hyperspectral_2d_scan', 'andor_hyperspec_scan', 
                                           'hyperspectral_2d_scan', 'fiber_winspec_scan',
-                                          'hyperspec_picam_mcl.h5','asi_hyperspec_scan']])
+                                          'hyperspec_picam_mcl.h5','asi_hyperspec_scan','asi_OO_hyperspec_scan']])
 
     def load_data(self, fname):
         self.h5_file = h5py.File(fname)
         for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan', 
-                          'fiber_winspec_scan','asi_hyperspec_scan', 'hyperspec_picam_mcl']:
+                          'fiber_winspec_scan','asi_hyperspec_scan', 'hyperspec_picam_mcl','asi_OO_hyperspec_scan']:
             if meas_name in self.h5_file['measurement']:
                 self.M = self.h5_file['measurement'][meas_name]
 
