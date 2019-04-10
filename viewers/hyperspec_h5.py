@@ -1,74 +1,119 @@
-from ScopeFoundry.data_browser import DataBrowser, HyperSpectralBaseView
+from ScopeFoundry.data_browser import HyperSpectralBaseView
 import numpy as np
 import h5py
-from qtpy import QtCore, QtWidgets
 import pyqtgraph as pg
+from .scalebars import ConfocalScaleBar
 
-   
 
 class HyperSpecH5View(HyperSpectralBaseView):
 
     name = 'hyperspec_h5'
 
+    supported_measurements = ['m4_hyperspectral_2d_scan',
+                              'andor_hyperspec_scan',
+                              'hyperspectral_2d_scan',
+                              'fiber_winspec_scan',
+                              'hyperspec_picam_mcl.h5',
+                              'asi_hyperspec_scan',
+                              'asi_OO_hyperspec_scan']
+
     def scan_specific_setup(self):
         pass
 
-        
     def is_file_supported(self, fname):
-        return np.any( [(meas_name in fname) 
-                        for meas_name in ['m4_hyperspectral_2d_scan', 'andor_hyperspec_scan', 
-                                          'hyperspectral_2d_scan', 'fiber_winspec_scan',
-                                          'hyperspec_picam_mcl.h5','asi_hyperspec_scan','asi_OO_hyperspec_scan']])
+        return np.any([(meas_name in fname)
+                       for meas_name in self.supported_measurements])
+
+    def reset(self):
+        if hasattr(self, 'dat'):
+            self.dat.close()
+            del self.dat
+
+        if hasattr(self,'scalebar'):
+            self.imview.getView().removeItem(self.scalebar)
+            del self.scalebar
 
     def load_data(self, fname):
-        self.h5_file = h5py.File(fname)
-        for meas_name in ['m4_hyperspectral_2d_scan', 'hyperspectral_2d_scan', 'andor_hyperspec_scan', 
-                          'fiber_winspec_scan','asi_hyperspec_scan', 'hyperspec_picam_mcl','asi_OO_hyperspec_scan']:
-            if meas_name in self.h5_file['measurement']:
-                self.M = self.h5_file['measurement'][meas_name]
+        self.dat = h5py.File(fname)
+        for meas_name in self.supported_measurements:
+            if meas_name in self.dat['measurement']:
+                self.M = self.dat['measurement'][meas_name]
 
         for map_name in ['hyperspectral_map', 'spec_map']:
             if map_name in self.M:
-                m = np.array(self.M[map_name].value)
-                if len(m.shape) == 4:
-                    m = m[0,:,:,:]
+                self.spec_map = np.array(self.M[map_name])
+                self.h_span = self.M['settings'].attrs['h_span']
+                units = self.M['settings/units'].attrs['h_span']
+                if units == 'mm':
+                    self.h_span = self.h_span*1e-3
+                if len(self.spec_map.shape) == 4:
+                    self.spec_map = self.spec_map[0, :, :, :]
 
-        self.hyperspec_data = m
+        self.hyperspec_data = self.spec_map
         self.display_image = self.hyperspec_data.sum(axis=-1)
         self.spec_x_array = np.arange(self.hyperspec_data.shape[-1])
 
-        for x_axis_name in ['wavelength', 'wls', 'wave_numbers', 'raman_shifts']:
+        for x_axis_name in ['wavelength', 'wls', 'wave_numbers',
+                            'raman_shifts']:
             if x_axis_name in self.M:
-                self.add_spec_x_array(x_axis_name, np.array(self.M[x_axis_name].value))
+                self.add_spec_x_array(x_axis_name,
+                                      np.array(self.M[x_axis_name]))
                 self.x_axis.update_value(x_axis_name)
-        self.h5_file.close()
+
+    def update_display(self):
+        if hasattr(self, 'scalebar'):
+            self.imview.getView().removeItem(self.scalebar)
+
+        if self.display_image is not None:
+            # pyqtgraph axes are x,y, but data is stored in (frame, y,x, time),
+            # so we need to transpose
+            self.imview.getImageItem().setImage(self.display_image.T)
+
+            nn = self.display_image.shape
+
+            if hasattr(self, 'h_span'):
+                span = self.h_span
+            else:
+                span = -1
+            self.scalebar = ConfocalScaleBar(span=span, num_px=nn[0])
+            self.scalebar.setParentItem(self.imview.getView())
+            self.scalebar.anchor((1, 1), (1, 1), offset=(-20, -20))
+
+            self.on_change_rect_roi()
+            self.on_update_circ_roi()
 
 
 def matplotlib_colormap_to_pg_colormap(colormap_name, n_ticks=16):
     '''
     ============= =========================================================
-    **Arguments** 
+    **Arguments**
     colormap_name (string) name of a matplotlib colormap i.e. 'viridis'
-    
-    n_ticks       (int)  Number of ticks to create when dict of functions 
+
+    n_ticks       (int)  Number of ticks to create when dict of functions
                   is used. Otherwise unused.
-    ============= =========================================================    
-    
+    ============= =========================================================
+
     returns:        (pgColormap) pyqtgraph colormap
     primary Usage:  <pg.ImageView>.setColorMap(pgColormap)
-    requires:       cmapToColormap by Sebastian Hoefer 
+    requires:       cmapToColormap by Sebastian Hoefer
                     https://github.com/pyqtgraph/pyqtgraph/issues/561
     '''
     from matplotlib import cm
     pos, rgba_colors = zip(*cmapToColormap(getattr(cm, colormap_name)), n_ticks)
     pgColormap = pg.ColorMap(pos, rgba_colors)
     return pgColormap
+
+
 def cmapToColormap(cmap, nTicks=16):
     """
-    Converts a Matplotlib cmap to pyqtgraphs colormaps. No dependency on matplotlib.
+    Converts a Matplotlib cmap to pyqtgraphs colormaps. No dependency on
+    matplotlib.
+
     Parameters:
-    *cmap*: Cmap object. Imported from matplotlib.cm.*
-    *nTicks*: Number of ticks to create when dict of functions is used. Otherwise unused.
+        *cmap*: Cmap object. Imported from matplotlib.cm.*
+        *nTicks*: Number of ticks to create when dict of functions is used.
+        Otherwise unused.
+
     author: Sebastian Hoefer
     """
     import collections
@@ -131,23 +176,23 @@ def cmapToColormap(cmap, nTicks=16):
     # Case #X: unknown format or datatype was the wrong object type
     else:
         raise ValueError("[cmapToColormap] Unknown cmap format or not a cmap!")
-    
+
     # Convert the RGB float values to RGBA integer values
     return list([(pos, (int(r), int(g), int(b), 255)) for pos, (r, g, b) in rgb_list])
 
 
-# 
+#
 # class HyperSpecSpecMedianH5View(HyperSpectralBaseView):
-# 
+#
 #     name = 'hyperspec_spec_median_npz'
-#     
+#
 #     def is_file_supported(self, fname):
-#         return "_spec_scan.npz" in fname   
-#     
-#     
-#     def load_data(self, fname):    
+#         return "_spec_scan.npz" in fname
+#
+#
+#     def load_data(self, fname):
 #         self.dat = np.load(fname)
-#         
+#
 #         self.spec_map = self.dat['spec_map']
 #         self.wls = self.dat['wls']
 #         self.integrated_count_map = self.dat['integrated_count_map']
@@ -157,15 +202,15 @@ def cmapToColormap(cmap, nTicks=16):
 #         self.hyperspec_data = self.spec_map
 #         self.display_image = self.spec_median_map
 #         self.spec_x_array = self.wls
-#         
+#
 #     def scan_specific_setup(self):
 #         self.spec_plot.setLabel('left', 'Intensity', units='counts')
-#         self.spec_plot.setLabel('bottom', 'Wavelength', units='nm')  
-#         
+#         self.spec_plot.setLabel('bottom', 'Wavelength', units='nm')
+#
 # if __name__ == '__main__':
 #     import sys
-#     
+#
 #     app = DataBrowser(sys.argv)
 #     app.load_view(HyperSpecH5View(app))
-#     
+#
 #     sys.exit(app.exec_())
