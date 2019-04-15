@@ -15,10 +15,15 @@ class HyperSpecH5View(HyperSpectralBaseView):
                               'fiber_winspec_scan',
                               'hyperspec_picam_mcl.h5',
                               'asi_hyperspec_scan',
-                              'asi_OO_hyperspec_scan']
+                              'asi_OO_hyperspec_scan',
+                              'andor_asi_hyperspec_scan',]
 
     def scan_specific_setup(self):
         pass
+
+    def setup(self):
+        self.settings.New('sample', dtype=str, initial='')
+        HyperSpectralBaseView.setup(self)
 
     def is_file_supported(self, fname):
         return np.any([(meas_name in fname)
@@ -59,6 +64,9 @@ class HyperSpecH5View(HyperSpectralBaseView):
                 self.add_spec_x_array(x_axis_name,
                                       np.array(self.M[x_axis_name]))
                 self.x_axis.update_value(x_axis_name)
+                
+        sample = self.dat['app/settings'].attrs['sample']
+        self.settings.sample.update_value(sample)
 
     def update_display(self):
         if hasattr(self, 'scalebar'):
@@ -78,7 +86,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
             self.scalebar = ConfocalScaleBar(span=span, num_px=nn[0])
             self.scalebar.setParentItem(self.imview.getView())
             self.scalebar.anchor((1, 1), (1, 1), offset=(-20, -20))
-
+            
             self.on_change_rect_roi()
             self.on_update_circ_roi()
 
