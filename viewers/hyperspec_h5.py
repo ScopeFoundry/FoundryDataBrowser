@@ -16,6 +16,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
                               'hyperspec_picam_mcl.h5',
                               'asi_hyperspec_scan',
                               'asi_OO_hyperspec_scan',
+                              'oo_asi_hyperspec_scan',
                               'andor_asi_hyperspec_scan',]
 
     def scan_specific_setup(self):
@@ -53,6 +54,10 @@ class HyperSpecH5View(HyperSpectralBaseView):
                     self.h_span = self.h_span*1e-3
                 if len(self.spec_map.shape) == 4:
                     self.spec_map = self.spec_map[0, :, :, :]
+                if 'dark_indices' in list(self.M.keys()):
+                    self.spec_map = np.delete(self.spec_map,
+                                              self.M['dark_indices'],
+                                              -1)
 
         self.hyperspec_data = self.spec_map
         self.display_image = self.hyperspec_data.sum(axis=-1)
@@ -61,8 +66,12 @@ class HyperSpecH5View(HyperSpectralBaseView):
         for x_axis_name in ['wavelength', 'wls', 'wave_numbers',
                             'raman_shifts']:
             if x_axis_name in self.M:
-                self.add_spec_x_array(x_axis_name,
-                                      np.array(self.M[x_axis_name]))
+                x_array = np.array(self.M[x_axis_name])
+                if 'dark_indices' in list(self.M.keys()):
+                    x_array = np.delete(x_array,
+                                        np.array(self.M['dark_indices']),
+                                        0)
+                self.add_spec_x_array(x_axis_name, x_array)
                 self.x_axis.update_value(x_axis_name)
                 
         sample = self.dat['app/settings'].attrs['sample']
