@@ -57,22 +57,36 @@ class TRPLH5View(HyperSpectralBaseView):
         self.display_image = integrated_count_map
         self.spec_x_array = time_array
         
-        print('load_data',self.hyperspec_data.shape)
-
+        print(self.name, 'load_data of shape', self.hyperspec_data.shape)
+        
+        if 'dark_histogram' in self.H:
+                self.dark_histogram = self.H['dark_histogram'][:]
+                self.bg_subtract.add_choice('dark_histogram')
+        
         self.h5_file.close()
+        
+    def get_bg(self):
+        if self.bg_subtract.val == 'dark_histogram':
+            bg = self.dark_histogram[self.x_slicer.slice].mean()
+            if not self.x_slicer.activated.val:
+                self.x_slicer.activated.update_value(True)
+                #self.x_slicer.set_label(title='dark_histogram bg', text=str(bg))
+            return bg
+        else:
+            return HyperSpectralBaseView.get_bg(self)
         
     def post_load(self):
         #self.recalc_taue_map()
         self.roll_offset.change_min_max(0,self.spec_x_array.shape[0])
         if  self.settings['roll_offset'] !=0:
             self.hyperspec_data = np.roll(self.hyperspec_data, self.settings['roll_offset'], -1)
+            if hasattr(self, 'dark_histogram'):
+                self.dark_histogram = np.roll(self.dark_histogram, self.settings['roll_offset'], -1)
             self.databrowser.ui.statusbar.showMessage('rolled data by: {} idxs'.format(self.settings['roll_offset']))
         self.on_change_roll_max_to()
             
-         
+            
     def scan_specific_setup(self):
-        # set spectral plot to be semilog-y
-
         self.spec_plot.setLogMode(False, True)
         self.spec_plot.setLabel('left', 'Intensity')
         self.spec_plot.setLabel('bottom', 'time')
@@ -82,6 +96,7 @@ class TRPLH5View(HyperSpectralBaseView):
                                           choices = ('None', 'rect_roi', 'circ'))
         self.fit_on.add_listener(self.on_change_fit_on)
         self.fit_line = self.spec_plot.plot(y=[0,2,1,3,2],pen='g')
+        self.x_slicer.activated.add_listener(self.on_change_fit_on)
 
         self.fit_option = self.settings.New('fit_option',str,initial='biexponential',
                                              choices = ('poly_fit','tau_x_calc', 'biexponential'))
@@ -94,11 +109,10 @@ class TRPLH5View(HyperSpectralBaseView):
         self.roll_offset = self.settings.New('roll_offset', int, initial=0, unit='idx')
         self.roll_offset.add_listener(self.on_change_roll_offset)
         
-        self.use_roll_max_to = self.settings.New('use_roll_max_to', bool, initial = True)
+        self.use_roll_max_to = self.settings.New('use_roll_max_to', bool, initial = False)
         self.roll_max_to = self.settings.New('roll_max_to', initial = 1, unit='[x]')
         self.use_roll_max_to.add_listener(self.on_change_roll_max_to)
         self.roll_max_to.add_listener(self.on_change_roll_max_to)
-        
         
         self.biexponential_settings = BS = LQCollection()
 
@@ -132,8 +146,7 @@ class TRPLH5View(HyperSpectralBaseView):
         self.set_last_biexponential_res_as_initials_pushButton = QtWidgets.QPushButton(text = 'use last result as initials')
         self.biexponential_settings_ui.layout().addWidget(self.set_last_biexponential_res_as_initials_pushButton)
         self.set_last_biexponential_res_as_initials_pushButton.clicked.connect(self.set_last_biexponential_res_as_initials)  
-        
-        
+                
         self.export_settings = ES = LQCollection()
         ES.New('include_scale_bar', bool, initial = True)
         ES.New('scale_bar_width', initial=0.005, spinbox_decimals=3)
@@ -159,13 +172,17 @@ class TRPLH5View(HyperSpectralBaseView):
         self.export_plot_as_jpeg_pushButton.clicked.connect(self.export_plot_as_jpeg)          
         self.export_settings_ui.layout().addWidget(self.export_plot_as_jpeg_pushButton)
         
+        self.export_plot_as_xlsx_pushButton = QtWidgets.QPushButton('export plot as xlsx')
+        self.export_plot_as_xlsx_pushButton.clicked.connect(self.export_plot_as_xlsx)          
+        self.export_settings_ui.layout().addWidget(self.export_plot_as_xlsx_pushButton)
+                
         self.image_dock.raiseDock()
         self.settings_dock.raiseDock()
         
         
     def on_change_roll_max_to(self):
         '''
-        Note: might call a funciton which reloads the data
+        Note: might call a function which reloads the data
         '''        
         if self.use_roll_max_to.val:
             target_x = self.roll_max_to.val
@@ -189,11 +206,11 @@ class TRPLH5View(HyperSpectralBaseView):
         
     def on_change_fit_option(self):
         self.fit_xy()
-        
+                        
     def on_change_fit_on(self):
-        if self.fit_on.val == 'None':
+        if self.fit_on.val == 'None' or (not self.x_slicer.activated.val):
             alpha = 0
-            self.x_slice_InfLineLabel.setText('x_slice')
+            self.x_slicer.set_label('')
         else:
             alpha = 1
         self.fit_line.setOpacity(alpha)
@@ -218,7 +235,8 @@ class TRPLH5View(HyperSpectralBaseView):
                          'tau_x_calc': self.tau_x_calc_xy,
                          'biexponential': self.fit_biexponential_xy}
         fit_option = self.settings['fit_option']
-        fit_func_dict[fit_option](x,y)
+        self.xf,self.yf = fit_func_dict[fit_option](x,y)
+        
         
     def fit_map(self, update_display_image = True, fit_option = None):
         time_array, time_trace_map = self.get_xhyperspec_data(apply_use_x_slice=True)
@@ -244,7 +262,7 @@ class TRPLH5View(HyperSpectralBaseView):
         numbers = '{0:1.1f}'.format(tau).split(" ")
         units = [self.settings['time_unit']]
         self.res_data_table = [[quantity, number, unit] for quantity, number, unit in zip(quantities,numbers,units)]
-        self.x_slice_InfLineLabel.setText(_table2text(self.res_data_table))
+        self.x_slicer.set_label(_table2text(self.res_data_table),title='tau_x_calc')
 
         return x,y
 
@@ -262,7 +280,7 @@ class TRPLH5View(HyperSpectralBaseView):
         numbers = '{0:1.1f} {1:1.1f}'.format(coefs[1],-1/coefs[0]).split(" ")
         units = ['-', self.settings['time_unit']]
         self.res_data_table = [[quantity, number, unit] for quantity, number, unit in zip(quantities,numbers,units)]
-        self.x_slice_InfLineLabel.setText(_table2text(self.res_data_table))
+        self.x_slicer.set_label(_table2text(self.res_data_table),title='poly_fit')
         
         return x,fit
         
@@ -292,9 +310,7 @@ class TRPLH5View(HyperSpectralBaseView):
     def set_last_biexponential_res_as_initials(self):
         for i,val in zip(['A0','tau0','A1','tau1'],self.current_bi_exp_fit_res):
             self.biexponential_settings[i+'_initial'] = val
-        
-
-    
+            
     def fit_biexponential_xy(self,x,y):
         bounds = self.biexponential_fit_bounds
         bi_initial = self.biexponential_fit_initials
@@ -309,21 +325,21 @@ class TRPLH5View(HyperSpectralBaseView):
         A0,tau0,A1,tau1 = bi_res.x
         A0,tau0,A1,tau1 = order_bi_exp_components(A0, tau0, A1, tau1)
         
-        tau_m = (A0*tau0 + A1*tau1) / (A0 + A1) 
+        A0_norm,A1_norm = A0/(A0 + A1),A1/(A0 + A1)
+        tau_m = A0_norm*tau0 + A1_norm*tau1
         fit = biexponential(bi_res.x, t)
         self.fit_line.setData(x,fit)
         self.current_bi_exp_fit_res = bi_res.x
 
-        quantities = ['$A_0$','$\\tau_0$','$A_1$','$\\tau_1$','$\\tau_m$']
-        numbers = '{0:1.1f} {1:1.1f} {2:1.1f} {3:1.1f} {4:1.1f}'.format(*bi_res.x[0:4].tolist(),tau_m).split(" ")
+
+        quantities = ['$\\tau_0$','$\\tau_1$','$A_0$','$A_1$','$\\tau_m$']
+        numbers = '{0:1.1f} {1:1.1f} {2:1.0f} {3:1.0f} {4:1.1f}'.format(tau0,tau1,A0_norm*100,A1_norm*100,tau_m).split(" ")
         time_unit = self.settings['time_unit']
-        units = ['-', time_unit, '-', time_unit, time_unit]
+        units = [time_unit, time_unit, '%', '%', time_unit]
         self.res_data_table = [[quantity, number, unit] for quantity, number, unit in zip(quantities,numbers,units)]
-        self.x_slice_InfLineLabel.setText(_table2text(self.res_data_table))
+        self.x_slicer.set_label(_table2text(self.res_data_table),title='biexponential fit')
         
         return x,fit
-        
-        
 
     def fit_biexponential_map(self,time_array, time_trace_map):
         x,time_trace_map = self.get_xhyperspec_data(apply_use_x_slice=True)
@@ -341,10 +357,12 @@ class TRPLH5View(HyperSpectralBaseView):
         taum = (A0*tau0 + A1*tau1) / (A0+A1)
         return(taum)
     
-    def scan_specific_save_func(self, h5_file):
+    def view_specific_save_state_func(self, h5_file):
         h5_group_settings_group = h5_file.create_group('biexponential_settings')
         h5_io.h5_save_lqcoll_to_attrs(self.biexponential_settings, h5_group_settings_group)
-
+        h5_group_settings_group = h5_file.create_group('export_settings')
+        h5_io.h5_save_lqcoll_to_attrs(self.export_settings, h5_group_settings_group)
+                                      
     def export_maps_as_jpegs(self):
         import matplotlib.pylab as plt
         for name,m in self.display_images.items():
@@ -367,46 +385,95 @@ class TRPLH5View(HyperSpectralBaseView):
             fig_name =  self.fname.replace('.h5','_{:0.0f}_{}.jpg'.format(time.time(),name) ) 
             plt.savefig(fig_name) 
             plt.close()
+    
+    
+    def save_fit_res_table(self, h5_file):
+        h5_group = h5_file.create_group('fit_res_table')
+        for (name, number, unit) in self.res_data_table:
+            h5_group.attrs[name] = number
+            h5_group.attrs[name + '_unit'] = unit
+            
+        
+    
+    def gather_plot_data_for_export(self):        
+        export_dict = {}
+        #choose the data plot line that has a fit on it.
+        if self.fit_on.val != 'None':
+            if self.fit_on.val == 'rect_roi':                
+                x,y = self.get_xy(ji_slice=self.rect_roi_slice, apply_use_x_slice = False)
+            elif self.fit_on.val == 'circ':
+                x,y = self.get_xy(ji_slice=self.circ_roi_slice, apply_use_x_slice=False)
+            
+            x_shift = x[y.argmax()]
+            
+            export_dict.update({'data':(x-x_shift,y)})
+            export_dict.update({'fit':(self.xf-x_shift,self.yf)})
+        #if there is no fit then choose according to show line settings
+        elif self.fit_on.val == 'None':
+            if self.settings['show_circ_line']:
+                x,y = self.get_xy(ji_slice=self.rect_roi_slice, apply_use_x_slice = False)
+                x_shift = x[y.argmax()]
+                export_dict.update({'point data':(x-x_shift,y)})
+            if self.settings['show_rect_line']:
+                x,y = self.get_xy(ji_slice=self.rect_roi_slice, apply_use_x_slice = False)
+                x_shift = x[y.argmax()]                
+                export_dict.update({'rectangle data':(x-x_shift,y)})
+        return export_dict
+
+
+    def export_plot_as_xlsx(self):
+        
+        fname = self.databrowser.settings['data_filename']
+        xlsx_fname = fname.replace( '.h5','_{:0.0f}_{}.xlsx'.format(time.time(), self.fit_on.val) )
+
+        import xlsxwriter
+        workbook = xlsxwriter.Workbook(xlsx_fname)
+
+        worksheet = workbook.add_worksheet('data')
+        for i,(label,(x,y)) in enumerate(self.gather_plot_data_for_export().items()):
+            worksheet.write(0, i*2, label)
+            for ii_, X in enumerate((x,y)):
+                worksheet.write(1, i*2+ii_, ['time', 'counts'][ii_])
+                worksheet.write_column(row=2, col=i*2+ii_, data = X)
+                      
+        if self.export_settings['include_fit_results'] and self.fit_on.val != 'None':
+            worksheet = workbook.add_worksheet('fit_results')
+
+            for i,row_ in enumerate(self.res_data_table):
+                worksheet.write_row(i,0,row_)
+                
+        workbook.close()
+        self.databrowser.ui.statusbar.showMessage('exported data to ' + xlsx_fname)
+
+
     def export_plot_as_jpeg(self):
         print('export_plot_as_jpeg()')
         import matplotlib.pylab as plt
         ES = self.export_settings
-        
+                
         plt.figure()
         ax = plt.subplot(111)
-        
-        y_lim = [None,None]        
-        if self.fit_on.val == 'rect_roi':
-            x,y = self.rect_plotdata.getData()
-            plt.semilogy(x,y, label = 'data')
-            y_lim[1] = 1.01*y.max()      
-        elif self.fit_on.val == 'circ':
-            x,y = self.point_plotdata.getData()
-            plt.semilogy(x,y, label = 'data')
-            y_lim[1] = 1.01*y.max()      
-        elif self.fit_on.val == 'None':
-            if self.settings['show_circ_line']:
-                x,y = self.point_plotdata.getData()
-                plt.semilogy(x,y, label='rectangle')       
-            if self.settings['show_rect_line']:
-                x,y = self.rect_plotdata.getData()
-                plt.semilogy(x,y, label='point')
-        
-        if self.fit_on.val != 'None':
-            x,y = self.fit_line.getData()
-            plt.semilogy(x,y, label = 'fit')
-            y_lim[0] = 0.99*y[-1]
-        if not ES['auto_y_lim']:
-            y_lim = [ES['y_lim_min'],ES['y_lim_max']]
-        if not (None in y_lim):
-            ES['y_lim_min'],ES['y_lim_max'] = y_lim
-        
-        plt.ylim(*y_lim)
-        if not ES['auto_x_lim']:
-            plt.xlim(ES['x_lim_min'],ES['x_lim_max'])
+        y_lim = [0.99*self.yf[-1],  0.1] 
+
+        for label,(x,y) in self.gather_plot_data_for_export().items():
+            ax.semilogy(x,y, label = label)
+            if y_lim[1] < 1.01*y.max():
+                y_lim[1] = 1.01*y.max()
+                
+        # Apply limits
+        if ES['auto_y_lim']:
+            ax.set_ylim(ymin = y_lim[0])
+        else:
+            ax.set_ylim(ES['y_lim_min'],ES['y_lim_max'])
+
+        if ES['auto_x_lim']:
+            ax.set_xlim(xmax = 1.01*self.xf.max() )
+        else:
+            ax.set_xlim(ES['x_lim_min'],ES['x_lim_max'])      
         
         plt.legend(loc=1)
         
+        # Put the fit results somewhere
         if ES['include_fit_results'] and self.fit_on.val != 'None':
             tab = plt.table(cellText=self.res_data_table,
                             colWidths=[0.15,0.1,0.04],
@@ -416,18 +483,20 @@ class TRPLH5View(HyperSpectralBaseView):
             tab.auto_set_font_size(True)
             for key, cell in tab.get_celld().items():
                 cell.set_linewidth(0)
-
+                
         if ES['plot_title'] != '':
             plt.title(ES['plot_title'])
         
         plt.xlabel('time ({})'.format(self.settings['time_unit']))
         plt.ylabel('intensity (a.u.)')
         plt.tight_layout()
-        fig_name =  self.fname.replace( '.h5','_{:0.0f}_{}.jpg'.format(time.time(), self.fit_on.val) )
+        fname = self.databrowser.settings['data_filename']
+        fig_name = fname.replace( '.h5','_{:0.0f}_{}.jpg'.format(time.time(), self.fit_on.val) )
         plt.savefig(fig_name, dpi=300)
-        plt.close()
-        
+        plt.close()    
+        self.databrowser.ui.statusbar.showMessage('exported data to ' + fig_name)
 
+        
         
 def biexponential(params, t):
     '''
@@ -560,7 +629,7 @@ def _table2text(data_table, strip_latex = True):
     for line in data_table:
         text += (' '.join(line)+ '\n') 
     if strip_latex:
-        text = text.replace('\\', '').replace('$','')
+        text = text.replace('\\','').replace('$','').replace('_','')
     return text
 
 """class TRPL3dNPZView(HyperSpectralBaseView):
@@ -637,6 +706,6 @@ if __name__ == '__main__':
     import sys
     
     app = DataBrowser(sys.argv)
-    app.load_view(TRPLNPZView(app))
+    app.load_view(TRPLH5View(app))
     
     sys.exit(app.exec_())
