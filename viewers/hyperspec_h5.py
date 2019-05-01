@@ -13,7 +13,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
                               'andor_hyperspec_scan',
                               'hyperspectral_2d_scan',
                               'fiber_winspec_scan',
-                              'hyperspec_picam_mcl.h5',
+                              'hyperspec_picam_mcl',
                               'asi_hyperspec_scan',
                               'asi_OO_hyperspec_scan',
                               'oo_asi_hyperspec_scan',
@@ -48,10 +48,11 @@ class HyperSpecH5View(HyperSpectralBaseView):
         for map_name in ['hyperspectral_map', 'spec_map']:
             if map_name in self.M:
                 self.spec_map = np.array(self.M[map_name])
-                self.h_span = self.M['settings'].attrs['h_span']
-                units = self.M['settings/units'].attrs['h_span']
-                if units == 'mm':
-                    self.h_span = self.h_span*1e-3
+                if 'h_span' in self.M['settings'].attrs:
+                    self.h_span = float(self.M['settings'].attrs['h_span'])
+                    units = self.M['settings/units'].attrs['h0']
+                    if units == 'mm':
+                        self.h_span = self.h_span*1e-3
                 if len(self.spec_map.shape) == 4:
                     self.spec_map = self.spec_map[0, :, :, :]
                 if 'dark_indices' in list(self.M.keys()):
