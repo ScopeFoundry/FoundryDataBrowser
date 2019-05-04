@@ -1,7 +1,7 @@
 from ScopeFoundry.data_browser import DataBrowser, HyperSpectralBaseView
 import numpy as np
 import h5py
-from qtpy import QtWidgets
+from qtpy import QtWidgets, QtCore
 import pyqtgraph as pg
 from scipy.optimize import least_squares
 from ScopeFoundry.logged_quantity import LQCollection
@@ -97,8 +97,9 @@ class TRPLH5View(HyperSpectralBaseView):
         self.fit_on.add_listener(self.on_change_fit_on)
         self.fit_line = self.spec_plot.plot(y=[0,2,1,3,2],pen='g')
         self.x_slicer.activated.add_listener(self.on_change_fit_on)
+        self.x_slicer.region_changed_signal.connect(self.fit_xy)
 
-        self.fit_option = self.settings.New('fit_option',str,initial='biexponential',
+        self.fit_option = self.settings.New('fit_option',str,initial='tau_x_calc',
                                              choices = ('poly_fit','tau_x_calc', 'biexponential'))
         self.fit_option.add_listener(self.on_change_fit_option)
         
@@ -223,8 +224,11 @@ class TRPLH5View(HyperSpectralBaseView):
     def on_update_circ_roi(self):
         HyperSpectralBaseView.on_update_circ_roi(self)
         self.fit_xy()
-        
+    
+    @QtCore.Slot()
     def fit_xy(self):
+        if self.x_slicer.activated.value == False:
+            return
         if self.fit_on.val == 'rect_roi':
             x,y = self.get_xy(self.rect_roi_slice, apply_use_x_slice=True)
         elif self.fit_on.val == 'circ':
@@ -236,6 +240,7 @@ class TRPLH5View(HyperSpectralBaseView):
                          'biexponential': self.fit_biexponential_xy}
         fit_option = self.settings['fit_option']
         self.xf,self.yf = fit_func_dict[fit_option](x,y)
+        
         
         
     def fit_map(self, update_display_image = True, fit_option = None):
@@ -262,7 +267,7 @@ class TRPLH5View(HyperSpectralBaseView):
         numbers = '{0:1.1f}'.format(tau).split(" ")
         units = [self.settings['time_unit']]
         self.res_data_table = [[quantity, number, unit] for quantity, number, unit in zip(quantities,numbers,units)]
-        self.x_slicer.set_label(_table2text(self.res_data_table),title='tau_x_calc')
+        self.x_slicer.set_label(_table2html(self.res_data_table, strip_latex=True), title='tau_x_calc')
 
         return x,y
 
@@ -280,7 +285,7 @@ class TRPLH5View(HyperSpectralBaseView):
         numbers = '{0:1.1f} {1:1.1f}'.format(coefs[1],-1/coefs[0]).split(" ")
         units = ['-', self.settings['time_unit']]
         self.res_data_table = [[quantity, number, unit] for quantity, number, unit in zip(quantities,numbers,units)]
-        self.x_slicer.set_label(_table2text(self.res_data_table),title='poly_fit')
+        self.x_slicer.set_label(_table2html(self.res_data_table, strip_latex=True), title='poly_fit')
         
         return x,fit
         
@@ -323,7 +328,7 @@ class TRPLH5View(HyperSpectralBaseView):
                                  args = (t, y))
 
         A0,tau0,A1,tau1 = bi_res.x
-        A0,tau0,A1,tau1 = order_bi_exp_components(A0, tau0, A1, tau1)
+        A0,tau0,A1,tau1 = sort_biexponential_components(A0, tau0, A1, tau1)
         
         A0_norm,A1_norm = A0/(A0 + A1),A1/(A0 + A1)
         tau_m = A0_norm*tau0 + A1_norm*tau1
@@ -337,7 +342,7 @@ class TRPLH5View(HyperSpectralBaseView):
         time_unit = self.settings['time_unit']
         units = [time_unit, time_unit, '%', '%', time_unit]
         self.res_data_table = [[quantity, number, unit] for quantity, number, unit in zip(quantities,numbers,units)]
-        self.x_slicer.set_label(_table2text(self.res_data_table),title='biexponential fit')
+        self.x_slicer.set_label(_table2html(self.res_data_table, strip_latex=True),title='biexponential fit')
         
         return x,fit
 
@@ -351,7 +356,7 @@ class TRPLH5View(HyperSpectralBaseView):
         tau0 = bi_res_map[:,:,1]
         A1 = bi_res_map[:,:,2]
         tau1 = bi_res_map[:,:,3]
-        A0,tau0,A1,tau1 = order_bi_exp_components(A0, tau0, A1, tau1)
+        A0,tau0,A1,tau1 = sort_biexponential_components(A0, tau0, A1, tau1)
         for key,image in zip(['A0_map','tau0_map','A1_map','tau1_map'],[A0,tau0,A1,tau1]):
             self.add_display_image(key, image)        
         taum = (A0*tau0 + A1*tau1) / (A0+A1)
@@ -514,15 +519,15 @@ def fit_biexpontial(y, t,  bi_initial, bounds):
 def biexponential_map(t, time_trace_map, bi_initial, bounds, axis=-1):
     kwargs = dict(t=t, bi_initial=bi_initial, bounds=bounds)
     return np.apply_along_axis(fit_biexpontial, axis=axis, arr=np.squeeze(time_trace_map), **kwargs)
-def order_bi_exp_components(A0,tau0,A1,tau1):
+def sort_biexponential_components(A0,tau0,A1,tau1):
     '''
-    ensures that tau0 > tau1, also swaps values in A1 and A0 if necessary.
+    ensures that tau0 < tau1, also swaps values in A1 and A0 if necessary.
     '''
     A0 = np.atleast_1d(A0)
     tau0 = np.atleast_1d(tau0)
     A1 = np.atleast_1d(A1)
     tau1 = np.atleast_1d(tau1) 
-    mask = tau0 > tau1
+    mask = tau0 < tau1
     mask_ = np.invert(mask)
     new_tau0 = tau0.copy()
     new_tau0[mask_] = tau1[mask_]
@@ -537,7 +542,7 @@ def order_bi_exp_components(A0,tau0,A1,tau1):
         tau1 = np.asscalar(tau1)
     except ValueError:
         pass
-    return new_A0,new_tau0,A1,tau1 #Note, generally A1,tau1 are also modified.
+    return new_A0,new_tau0,A1,tau1 #Note, generally A1,tau1 were also modified.
 
 def poly_fit(y,x,deg=1):
         mask = y > 0
@@ -631,6 +636,19 @@ def _table2text(data_table, strip_latex = True):
     if strip_latex:
         text = text.replace('\\','').replace('$','').replace('_','')
     return text
+
+def _table2html(data_table, strip_latex = True):
+    text = '<table border="0">'
+    for line in data_table:
+        text += '<tr>'
+        for element in line:
+            text += '<td>{} </td>'.format(element)
+        text += '</tr>'    
+    text += '</table>'
+    if strip_latex:
+        text = text.replace('\\','').replace('$','').replace('_','')
+    return text
+
 
 """class TRPL3dNPZView(HyperSpectralBaseView):
 
