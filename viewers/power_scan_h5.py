@@ -32,9 +32,11 @@ class PowerScanH5View(DataBrowserView):
         
         self.power_plotcurve = self.power_plot.plot([1],[1], name='Data', symbol='+', symbolBrush='m')
 
-        self.power_plot_current_pos = self.power_plot.plot(symbol='o', pen='r')
+        self.power_plot_current_pos = self.power_plot.plot(symbol='o', symbolBrush='r',)
+        self.power_plot_current_pos.setZValue(10)
 
-        self.power_fit_plotcurve = self.power_plot.plot([1],[1],pen='r', name='Fit')
+        self.power_fit_plotcurve = self.power_plot.plot([1],[1],pen='g', name='Fit')
+        self.power_plotcurve_selected = self.power_plot.plot([1],[1],symbol='o', pen=None, symbolPen='g') 
 
         self.graph_layout.nextRow()
         self.spec_plot = self.graph_layout.addPlot()
@@ -63,7 +65,7 @@ class PowerScanH5View(DataBrowserView):
 
         self.spec_x_slicer = RegionSlicer(self.spec_plotcurve, name='slicer',
                                      slicer_updated_func=self.update_power_plotcurve,
-                                     activated = True,
+                                     activated = False,
                                     )
         settings_layout.addWidget(self.spec_x_slicer.New_UI(),2,1)
     
@@ -120,7 +122,8 @@ class PowerScanH5View(DataBrowserView):
     def on_spec_index_change(self):
         ii = self.settings['spec_index']
         self.power_plot_current_pos.setData(self.X[ii:ii+1], self.Y[ii:ii+1])
-        spectrum = self.hyperspec_data[self.idx_mapping[ii],:]
+        #spectrum = self.hyperspec_data[self.idx_mapping[ii],:]
+        spectrum = self.hyperspec_data[ii,:]
         self.spec_plotcurve.setData(self.spec_x_array,spectrum)
         
     def on_change_power_x_axis(self):
@@ -128,10 +131,12 @@ class PowerScanH5View(DataBrowserView):
     
     def get_power_xhyperspecdata(self):
         power_plot_x = getattr(self, self.settings.power_x_axis.value)
-        self.idx_mapping = idx = np.argsort(power_plot_x)
-        hyperspec = self.hyperspec_data[idx,self.spec_x_slicer.s]
-        return (power_plot_x[idx],hyperspec)
-        
+        #self.idx_mapping = idx = np.argsort(power_plot_x)
+        #hyperspec = self.hyperspec_data[idx,self.spec_x_slicer.s]
+        hyperspec = self.hyperspec_data[:,self.spec_x_slicer.s]
+        #return (power_plot_x[idx],hyperspec)
+        return (power_plot_x, hyperspec)
+                
     def get_power_xy(self):
         power_plot_x,hyperspec = self.get_power_xhyperspecdata()
         power_plot_y  = hyperspec.sum(axis=1)
@@ -143,13 +148,15 @@ class PowerScanH5View(DataBrowserView):
         self.X, self.Y = self.get_power_xy() 
         self.power_plotcurve.setData(self.X, self.Y)
         self.on_spec_index_change()
+        self.redo_fit()
 
     def redo_fit(self):
-        s = self.power_plot_slicer.s
+        s = self.power_plot_slicer.mask
         m, b = np.polyfit(np.log10(self.X[s]), np.log10(self.Y[s]), deg=1)
         print("fit values m,b:", m,b) 
         fit_data = 10**(np.poly1d((m,b))(np.log10(self.X)))
         self.power_fit_plotcurve.setData(self.X[s], fit_data[s])
+        self.power_plotcurve_selected.setData(self.X[s], self.Y[s])
         self.power_plot_slicer.set_label("<h1>{:1.2f}+I<sup>{:1.2f}</sup></h1>".format(b,m))
 
         
