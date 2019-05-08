@@ -4,9 +4,10 @@ import h5py
 import pyqtgraph as pg
 from .scalebars import ConfocalScaleBar
 from matplotlib.cm import ScalarMappable
-from pyqtgraph.opengl import GLVolumeItem
-from pyqtgraph.opengl import GLViewWidget
+from pyqtgraph.opengl import GLViewWidget, GLAxisItem, GLGridItem, GLVolumeItem
 from scipy.interpolate import interp1d
+from qtpy.QtWidgets import QPushButton
+import time
 
 
 class HyperSpec3DH5View(HyperSpectralBaseView):
@@ -22,6 +23,7 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
     def setup(self):
         self.settings.New('sample', dtype=str, initial='')
         self.settings.New('z_slice', dtype=float, choices=[0.0], initial=0.0)
+        self.settings.New('show_3d', dtype=bool, initial=False)
         self.settings.New('vol_alpha', dtype=float, vmin=0.0, vmax=1.0,
                           initial=0.5)
         self.settings.New(
@@ -30,24 +32,37 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
                      'Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
                      'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
                      'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn'])
-        self.settings.New('vol_percentile', dtype=int, vmin=0, vmax=100,
+        # self.settings.New('vol_percentile', dtype=int, vmin=0, vmax=49,
+        #                   initial=5)
+        self.settings.New('vol_percentile_min', dtype=int, vmin=0, vmax=100,
                           initial=5)
+        self.settings.New('vol_percentile_max', dtype=int, vmin=0, vmax=100,
+                          initial=95)
         self.settings.New('vol_transparent_percentile', dtype=int, vmin=0,
                           vmax=100, initial=5)
         self.settings.New('vol_transparent_min', dtype=bool, initial=False)
         self.settings.z_slice.updated_choice_index_value.connect(
             self.on_update_zslice_choice)
-        self.settings.vol_colormap.updated_value.connect(self.calculate_volume)
-        self.settings.vol_alpha.updated_value.connect(self.calculate_volume)
+        # self.settings.vol_colormap.updated_value.connect(self.calculate_volume)
+        # self.settings.vol_alpha.updated_value.connect(self.calculate_volume)
         HyperSpectralBaseView.setup(self)
         voldata = np.empty((1, 1, 1, 4), dtype=np.ubyte)
         voldata[0, 0, 0, :] = [255, 255, 255, 0]
         self.volitem = GLVolumeItem(data=voldata)
         self.glview = GLViewWidget()
+        self.glaxis = GLAxisItem()
+        self.glgrid = GLGridItem()
+        self.glview.addItem(self.glgrid)
+        self.glview.addItem(self.glaxis)
         self.glview.addItem(self.volitem)
         self.gldock = self.dockarea.addDock(name='3D', widget=self.glview,
                                             position='below',
                                             relativeTo=self.image_dock)
+
+        self.calculate_3d_pushButton = QPushButton(text='calculate_3d')
+        self.settings_ui.layout().addWidget(self.calculate_3d_pushButton)
+        self.calculate_3d_pushButton.clicked.connect(self.calculate_volume)
+        self.image_dock.raiseDock()
 
     def is_file_supported(self, fname):
         return np.any([(meas_name in fname)
@@ -64,6 +79,14 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
         if hasattr(self, 'scalebar'):
             self.imview.getView().removeItem(self.scalebar)
             del self.scalebar
+
+        if hasattr(self, 'volume'):
+            spoof_data = np.zeros((1, 1, 1, 4), dtype=np.ubyte)
+            self.volitem.setData(spoof_data)
+            del self.volume
+
+        self.settings.show_3d.update_value(False)
+        self.image_dock.raiseDock()
 
     def load_data(self, fname):
         self.dat = h5py.File(fname)
@@ -100,7 +123,6 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
         self.settings.z_slice.change_choice_list(self.z_array.tolist())
         self.settings.z_slice.update_value(self.z_array[0])
         self.spec_x_array = np.arange(self.hyperspec_data.shape[-1])
-        self.volume = np.zeros(self.spec_map.shape[:-1] + (4,), dtype=np.ubyte)
 
         for x_axis_name in ['wavelength', 'wls', 'wave_numbers',
                             'raman_shifts']:
@@ -138,8 +160,15 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
             self.update_display()
 
     def calculate_volume(self):
-        if not hasattr(self, 'volume'):
+        if not self.settings['show_3d']:
+            print('calculate_volume called without show_3d')
             return
+
+        print('calculating 3d volume')
+        t0 = time.time()
+
+        if hasattr(self, 'volume'):
+            del self.volume
 
         if hasattr(self, 'mappable'):
             self.mappable.set_cmap(self.settings['vol_colormap'])
@@ -148,34 +177,38 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
 
         z_span = self.z_array[-1] - self.z_array[0]
         dx = self.x_array[1] - self.x_array[0]
-        z_interp = interp1d(self.z_array, self.spec_map, axis=0)
         z_interp_array = np.linspace(np.amin(self.z_array),
                                      np.amax(self.z_array),
                                      num=z_span/dx)
-        z_interp_map = z_interp(z_interp_array)
+        z_interp = None
+        self.volume = None
         nz = len(z_interp_array)
-        self.volume = np.zeros(z_interp_map.shape[:-1] + (4,))
-        data = z_interp_map
 
         if self.settings['display_image'] == 'bandpass_map':
-            if hasattr(self, 'volume'):
-                del self.volume
+            print('bandpass_map selected')
             x, slice = self.get_xhyperspec_data(apply_use_x_slice=True)
-            self.volume = np.zeros(
-                (nz,) + slice.shape[:-1] + (4,), dtype=np.ubyte)
+            ind_min = np.nonzero(self.spec_x_array == x[0])[0][0]
+            ind_max = np.nonzero(self.spec_x_array == x[-1])[0][0]
             data = np.zeros((len(self.z_array),) + slice.shape)
-            for kk in range(len(self.z_array)):
-                self.settings.z_slice.update_value(self.z_array[kk])
-                x, data[kk, :, :, :] = self.get_xhyperspec_data(
-                    apply_use_x_slice=True)
+            data = self.spec_map[:, :, :, ind_min:ind_max]
+            # for kk in range(len(self.z_array)):
+            #     print(
+            #         'grabbing bandpass layer %d of %d' % (kk, len(self.z_array)))
+            #     self.settings.z_slice.update_value(self.z_array[kk])
+            #     x, data[kk, :, :, :] = self.get_xhyperspec_data(
+            #         apply_use_x_slice=True)
             z_interp = interp1d(self.z_array, data, axis=0)
-            data = z_interp(z_interp_array)
+        else:
+            z_interp = interp1d(self.z_array, self.spec_map, axis=0)
 
-        # print(data.shape)
-        per = self.settings['vol_percentile']
+        data = z_interp(z_interp_array)
+        self.volume = np.zeros(data.shape[:-1] + (4,), dtype=np.ubyte)
+
+        pmin = self.settings['vol_percentile_min']
+        pmax = self.settings['vol_percentile_max']
         self.mappable.set_array(data.sum(axis=-1))
-        vmin = np.percentile(data.sum(axis=-1), per)
-        vmax = np.percentile(data.sum(axis=-1), 100-per)
+        vmin = np.percentile(data.sum(axis=-1), pmin)
+        vmax = np.percentile(data.sum(axis=-1), pmax)
         tmin = np.percentile(
             data.sum(axis=-1),
             self.settings['vol_transparent_percentile'])
@@ -183,6 +216,7 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
         # self.mappable.autoscale()
 
         for kk in range(nz):
+            print('calculating rgba vals for %d of %d layers' % (kk, nz))
             sum_data = data[kk, :, :, :].sum(axis=-1)
             # print(sum_data.shape, self.volume.shape)
             self.volume[kk, :, :, :] = self.mappable.to_rgba(
@@ -193,6 +227,14 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
             if self.settings['vol_transparent_min']:
                 self.volume[kk, :, :, 3][np.nonzero(sum_data <= tmin)] = 0
 
+        print('3d volume calculation complete')
+        t1 = time.time()
+        print('time elapsed: %0.3f s' % (t1-t0))
+
+        kwargs = {'x': len(self.x_array), 'y': len(self.x_array), 'z': nz}
+        self.glaxis.setSize(**kwargs)
+        self.glgrid.setSize(**kwargs)
+        self.glgrid.setSpacing(x=1/dx*5, y=1/dx*5, z=1/dx*5)
         # print(self.mappable.get_cmap().name)
         # print(data.shape, self.volume.shape)
 
@@ -215,7 +257,7 @@ class HyperSpec3DH5View(HyperSpectralBaseView):
             self.scalebar.setParentItem(self.imview.getView())
             self.scalebar.anchor((1, 1), (1, 1), offset=(-20, -20))
 
-            if hasattr(self, 'volume'):
+            if hasattr(self, 'volume') and self.settings['show_3d']:
                 self.volitem.setData(np.swapaxes(self.volume, 0, 2))
 
             self.on_change_rect_roi()
