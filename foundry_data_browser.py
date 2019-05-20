@@ -44,6 +44,9 @@ app.load_view(PicoHarpNPZView(app))
 from viewers.picoharp_histogram_h5 import PicoHarpHistogramH5View
 app.load_view(PicoHarpHistogramH5View(app))
 
+from viewers.harp_histogram_h5 import HarpHistogramH5View
+app.load_view(HarpHistogramH5View(app))
+
 from viewers.hyperspec_npz import HyperSpecNPZView
 app.load_view(HyperSpecNPZView(app))
 
