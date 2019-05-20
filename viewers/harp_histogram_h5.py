@@ -1,6 +1,13 @@
+'''
+Created on May 20, 2019
+
+@author: Edward Barnard, Benedikt Ursprung
+'''
+
+
 from ScopeFoundry.data_browser import DataBrowser, DataBrowserView
 import pyqtgraph as pg
-from qtpy import QtGui, QtWidgets, QtCore
+from qtpy import QtWidgets, QtCore
 
 import numpy as np
 import h5py
