@@ -176,4 +176,4 @@ class PowerScanH5View(DataBrowserView):
         fit_data = 10**(np.poly1d((m,b))(np.log10(self.X)))
         self.power_fit_plotcurve.setData(self.X[s], fit_data[s])
         self.power_plotcurve_selected.setData(self.X[s], self.Y[s])
-        self.power_plot_slicer.set_label("<h1>{:1.2f}+I<sup>{:1.2f}</sup></h1>".format(b,m))       
+        self.power_plot_slicer.set_label("<h1>{:1.2f}*I<sup>{:1.2f}</sup></h1>".format(b,m))       
