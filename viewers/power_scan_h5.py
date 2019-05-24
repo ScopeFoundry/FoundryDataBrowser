@@ -32,16 +32,16 @@ class PowerScanH5View(DataBrowserView):
 
         self.power_plot = self.graph_layout.addPlot()
         self.power_plot.setLogMode(x=True, y=True)
-        self.power_plotcurve = self.power_plot.plot([1],[1], name='Data', symbol='+', symbolBrush='m')
-        self.power_plot_current_pos = self.power_plot.plot(symbol='o', symbolBrush='r',)
+        self.power_plotcurve = self.power_plot.plot([1,3,2,4], name='Data', symbol='+', symbolBrush='m')
+        self.power_plot_current_pos = self.power_plot.plot([1,3,2,4],symbol='o', symbolBrush='r',)
         self.power_plot_current_pos.setZValue(10)
-        self.power_fit_plotcurve = self.power_plot.plot([1],[1],pen='g', name='Fit')
-        self.power_plotcurve_selected = self.power_plot.plot([1],[1],symbol='o', pen=None, symbolPen='g') 
+        self.power_fit_plotcurve = self.power_plot.plot([1,3,2,4],pen='g', name='Fit')
+        self.power_plotcurve_selected = self.power_plot.plot([1,3,2,4],symbol='o', pen=None, symbolPen='g') 
 
         self.graph_layout.nextRow()
         self.spec_plot = self.graph_layout.addPlot()
-        self.spec_plotcurve = self.spec_plot.plot([0], pen='r' )
-        self.spec_plotcurve_mean = self.spec_plot.plot([0], name='mean')
+        self.spec_plotcurve = self.spec_plot.plot([1,3,2,4], pen='r' )
+        self.spec_plotcurve_mean = self.spec_plot.plot([1,3,2,4], name='mean')
 
         settings_layout = QtWidgets.QGridLayout()
         self.ui.layout().addLayout(settings_layout)
@@ -108,23 +108,33 @@ class PowerScanH5View(DataBrowserView):
               
             #Provide  spec_x_array and hyperspec_data for each.
             '''self.spec_x_array has shape (N_wls,) [dim=1]
-            self.hyperspec_data has shape (Np, N_channels, N_wls)  [dim=3]'''
+            self.hyperspec_data has shape (Np, N_channels, N_wls)  [dim=3] e.g.'''
             self.spec_x_array = np.arange(512) 
             self.hyperspec_data = 0.5*np.arange(512*Np*1).reshape((Np, 1, 512))
+            
+            #Also, if present override the following array which will be used
+            # to normalize the cts:
+            acq_times_array = np.ones_like(H['pm_powers'])
 
                                     
             if 'integrated_spectra' in H:
+                for k in H.keys():
+                    if 'acq_times_array' in k:
+                        acq_times_array = H[k][:]
                 self.spec_x_array = H['wls'][:] 
                 self.hyperspec_data = H['spectra'][:].reshape(Np,1,-1)
-                    
+
+                
             for harp in ['picoharp','hydraharp']:
                 if '{}_histograms'.format(harp) in H:
                     histograms = H['{}_histograms'.format(harp)][:]
-                    elapsed_time = H['{}_elapsed_time'.format(harp)][:]
+                    acq_times_array = elapsed_time = H['{}_elapsed_time'.format(harp)][:]
                     self.spec_x_array = H['{}_time_array'.format(harp)][:]
                     if np.ndim(histograms) == 2:
                         histograms = histograms.reshape(Np,1,-1)
-                    self.hyperspec_data = (histograms.T/elapsed_time).T
+                    self.hyperspec_data = histograms
+                    
+            self.hyperspec_data = (self.hyperspec_data.T/acq_times_array).T
                     
             self.h5file.close()
             
@@ -143,7 +153,7 @@ class PowerScanH5View(DataBrowserView):
 
         except Exception as err:
             self.databrowser.ui.statusbar.showMessage("failed to load {}:\n{}".format(fname, err) )
-            raise(err)
+            #raise(err)
     
     
     def on_spec_index_change(self):
@@ -196,8 +206,7 @@ class PowerScanH5View(DataBrowserView):
         fit_data = 10**(np.poly1d((m,b))(np.log10(self.X)))
         self.power_fit_plotcurve.setData(self.X[s], fit_data[s])
         self.power_plotcurve_selected.setData(self.X[s], self.Y[s])
-        self.power_plot_slicer.set_label("<h1>{:1.2f} * I<sup>{:1.2f}</sup></h1>".format(b,m))      
-        
+        self.power_plot_slicer.set_label("<h1>{:1.2f} * I<sup>{:1.2f}</sup></h1>".format(b,m)) 
         
         
 if __name__ == '__main__':
