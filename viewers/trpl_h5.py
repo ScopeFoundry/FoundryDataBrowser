@@ -58,6 +58,11 @@ class TRPLH5View(HyperSpectralBaseView):
                     self.dark_histogram = np.expand_dims(self.dark_histogram, 0)
                 self.bg_subtract.add_choice('dark_histogram')
         
+        if 'h_span' in self.H['settings'].attrs:
+            h_span = float(self.H['settings'].attrs['h_span'])
+            units = self.H['settings/units'].attrs['h0']
+            self.set_scalebar_params(h_span, units)
+
         self.h5_file.close()
         
         
