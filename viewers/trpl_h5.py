@@ -36,38 +36,46 @@ class TRPLH5View(HyperSpectralBaseView):
         if not load_success:
             raise ValueError(self.name, "Measurement group not found in h5 file", fname)
         
-        self.S = self.h5_file['hardware/picoharp/settings'].attrs
         
-        try:
-            cr0 = self.S['count_rate0']
-            rep_period_s = 1.0/cr0
-            time_bin_resolution = self.S['Resolution']*1e-12
-            self.num_hist_chans = int(np.ceil(rep_period_s/time_bin_resolution))
-        except:
-            self.num_hist_chans = self.time_trace_map.shape[-1]
+        if 'counting_device' in self.H['settings'].attrs.keys():
+            self.counting_device = self.H['settings'].attrs['counting_device']
+        else:
+            self.counting_device = 'picoharp'
+        self.S = self.h5_file['hardware/{}/settings'.format(self.counting_device)].attrs
         
-        t_slice = np.s_[0:self.num_hist_chans]
-        
-        time_array = np.array(self.H['time_array'])[t_slice]
-        time_trace_map = np.array(self.H['time_trace_map'])[0,:,:,t_slice]
-        integrated_count_map = time_trace_map.sum(axis=-1)
-
+        time_array = self.H['time_array'][:] * 1e-3
+        self.time_trace_map = self.H['time_trace_map'][0]
+                
         # set defaults
-        self.hyperspec_data = time_trace_map
-        self.display_image = integrated_count_map
+        self.set_hyperspec_data()
         self.spec_x_array = time_array
         
         print(self.name, 'load_data of shape', self.hyperspec_data.shape)
         
         if 'dark_histogram' in self.H:
                 self.dark_histogram = self.H['dark_histogram'][:]
+                if np.ndim(self.dark_histogram)==1:
+                    self.dark_histogram = np.expand_dims(self.dark_histogram, 0)
                 self.bg_subtract.add_choice('dark_histogram')
         
         self.h5_file.close()
         
+        
+    def set_hyperspec_data(self):
+        if np.ndim(self.time_trace_map) == 4:
+            self.settings.chan.change_min_max(0,self.time_trace_map.shape[-2]-1)
+            self.hyperspec_data = self.time_trace_map[:,:,self.settings['chan'],:]
+        if np.ndim(self.time_trace_map) == 3:
+            self.settings.chan.change_min_max(0,0)
+            self.hyperspec_data = self.time_trace_map
+            
+        self.hyperspec_data = self.hyperspec_data
+        integrated_count_map = self.hyperspec_data.sum(axis=-1)
+        self.display_image = integrated_count_map
+                
     def get_bg(self):
         if self.bg_subtract.val == 'dark_histogram':
-            bg = self.dark_histogram[self.x_slicer.slice].mean()
+            bg = self.dark_histogram[self.settings['chan'],self.x_slicer.slice].mean()
             if not self.x_slicer.activated.val:
                 self.x_slicer.activated.update_value(True)
                 #self.x_slicer.set_label(title='dark_histogram bg', text=str(bg))
@@ -98,6 +106,9 @@ class TRPLH5View(HyperSpectralBaseView):
         self.fit_line = self.spec_plot.plot(y=[0,2,1,3,2],pen='g')
         self.x_slicer.activated.add_listener(self.on_change_fit_on)
         self.x_slicer.region_changed_signal.connect(self.fit_xy)
+
+        self.settings.New('chan', dtype=int, initial=0, vmin=0)
+        self.settings.chan.add_listener(self.set_hyperspec_data)
 
         self.fit_option = self.settings.New('fit_option',str,initial='tau_x_calc',
                                              choices = ('poly_fit','tau_x_calc', 'biexponential'))
