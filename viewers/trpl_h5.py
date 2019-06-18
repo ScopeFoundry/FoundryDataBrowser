@@ -56,7 +56,7 @@ class TRPLH5View(HyperSpectralBaseView):
                 self.dark_histogram = self.H['dark_histogram'][:]
                 if np.ndim(self.dark_histogram)==1:
                     self.dark_histogram = np.expand_dims(self.dark_histogram, 0)
-                self.bg_subtract.add_choice('dark_histogram')
+                self.bg_subtract.add_choices('dark_histogram')
         
         if 'h_span' in self.H['settings'].attrs:
             h_span = float(self.H['settings'].attrs['h_span'])
