@@ -17,9 +17,9 @@ from scipy.optimize import least_squares
 from ScopeFoundry.logged_quantity import LQCollection
 
 
-class HarpHistogramH5View(DataBrowserView):
+class PicoquantHistogramH5View(DataBrowserView):
 
-    name = 'harp_histogram_h5'
+    name = 'picoquant_histogram_h5'
           
     def is_file_supported(self, fname):
         if "picoharp_histogram.h5" in fname:
@@ -327,6 +327,6 @@ if __name__ == '__main__':
     import sys
     
     app = DataBrowser(sys.argv)
-    app.load_view(PicoHarpHistogramH5View(app))
+    app.load_view(PicoquantHistogramH5View(app))
     
     sys.exit(app.exec_())
