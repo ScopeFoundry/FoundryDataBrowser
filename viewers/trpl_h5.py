@@ -37,6 +37,8 @@ class TRPLH5View(HyperSpectralBaseView):
             raise ValueError(self.name, "Measurement group not found in h5 file", fname)
         
         
+        # Note: The behavior of this viewer somewhat depends on the counting device:
+        # see also set_hyperspec_data
         if 'counting_device' in self.H['settings'].attrs.keys():
             self.counting_device = self.H['settings'].attrs['counting_device']
         else:
@@ -44,12 +46,15 @@ class TRPLH5View(HyperSpectralBaseView):
         self.S = self.h5_file['hardware/{}/settings'.format(self.counting_device)].attrs
         
         time_array = self.H['time_array'][:] * 1e-3
-        self.time_trace_map = self.H['time_trace_map'][0]
+        self.time_trace_map = self.H['time_trace_map'][:]
                 
         # set defaults
-        self.set_hyperspec_data()
         self.spec_x_array = time_array
+        self.set_hyperspec_data()
+        integrated_count_map = self.hyperspec_data.sum(axis=-1)
+        self.display_image = integrated_count_map
         
+                
         print(self.name, 'load_data of shape', self.hyperspec_data.shape)
         
         if 'dark_histogram' in self.H:
@@ -64,19 +69,42 @@ class TRPLH5View(HyperSpectralBaseView):
             self.set_scalebar_params(h_span, units)
 
         self.h5_file.close()
+        self.roll_offset.change_min_max(0, self.spec_x_array.shape[0])
         
         
     def set_hyperspec_data(self):
+        # this function sets the hyperspec data based on self.time_trace_map
+        # and (`chan`, `frame) setting. The shape of time_trace_map depends on counting device: 
+        # 1. 4D picoharp data:  (Nframe, Ny, Nx, Ntime_bins)
+        # 2. 5D hydraharp data: (Nframe, Ny, Nx, Nchan, Ntime_bins)
+        #    changing setting 'chan' sets hyperspec data to: [:,:,chan,:]
+    
+        shape = self.time_trace_map.shape
+        n_frame = shape[0]
+        self.settings.frame.change_min_max(0, n_frame-1)
+        frame = self.settings['frame']
+        if np.ndim(self.time_trace_map) == 5:
+            n_chan = shape[-2]
+            self.settings.chan.change_min_max(0, n_chan-1)
+            hyperspec_data = self.time_trace_map[frame,:,:,self.settings['chan'],:]
         if np.ndim(self.time_trace_map) == 4:
-            self.settings.chan.change_min_max(0,self.time_trace_map.shape[-2]-1)
-            self.hyperspec_data = self.time_trace_map[:,:,self.settings['chan'],:]
-        if np.ndim(self.time_trace_map) == 3:
-            self.settings.chan.change_min_max(0,0)
-            self.hyperspec_data = self.time_trace_map
-            
-        self.hyperspec_data = self.hyperspec_data
-        integrated_count_map = self.hyperspec_data.sum(axis=-1)
-        self.display_image = integrated_count_map
+            self.settings['chan'] = 0
+            self.settings.chan.change_min_max(0, 0)
+            hyperspec_data = self.time_trace_map[frame,:]
+        
+        roll_offset = self.roll_offset.val        
+        if  roll_offset == 0:
+            self.hyperspec_data = hyperspec_data
+        else:   
+            self.hyperspec_data = np.roll(hyperspec_data, self.settings['roll_offset'], -1)
+            if hasattr(self, 'dark_histogram'):
+                self.dark_histogram = np.roll(self.dark_histogram, self.settings['roll_offset'], -1)        
+        
+        
+    def add_descriptor_suffixes(self, key):
+        #key += '_chan{}'.format(str(self.settings['chan']))
+        return HyperSpectralBaseView.add_descriptor_suffixes(self, key)
+
                 
     def get_bg(self):
         if self.bg_subtract.val == 'dark_histogram':
@@ -87,17 +115,7 @@ class TRPLH5View(HyperSpectralBaseView):
             return bg
         else:
             return HyperSpectralBaseView.get_bg(self)
-        
-    def post_load(self):
-        #self.recalc_taue_map()
-        self.roll_offset.change_min_max(0,self.spec_x_array.shape[0])
-        if  self.settings['roll_offset'] !=0:
-            self.hyperspec_data = np.roll(self.hyperspec_data, self.settings['roll_offset'], -1)
-            if hasattr(self, 'dark_histogram'):
-                self.dark_histogram = np.roll(self.dark_histogram, self.settings['roll_offset'], -1)
-            self.databrowser.ui.statusbar.showMessage('rolled data by: {} idxs'.format(self.settings['roll_offset']))
-        self.on_change_roll_max_to()
-            
+               
             
     def scan_specific_setup(self):
         self.spec_plot.setLogMode(False, True)
@@ -122,14 +140,12 @@ class TRPLH5View(HyperSpectralBaseView):
         self.fit_map_pushButton = QtWidgets.QPushButton(text = 'fit_map')
         self.settings_widgets.append(self.fit_map_pushButton)
         self.fit_map_pushButton.clicked.connect(lambda x:self.fit_map(update_display_image=True, fit_option=None))  
+        self.settings.New('frame', dtype=int, initial=0, vmin=0)
+        self.settings.frame.add_listener(self.set_hyperspec_data)
         
         self.roll_offset = self.settings.New('roll_offset', int, initial=0, unit='idx')
         self.roll_offset.add_listener(self.on_change_roll_offset)
         
-        self.use_roll_max_to = self.settings.New('use_roll_max_to', bool, initial = False)
-        self.roll_max_to = self.settings.New('roll_max_to', initial = 1, unit='[x]')
-        self.use_roll_max_to.add_listener(self.on_change_roll_max_to)
-        self.roll_max_to.add_listener(self.on_change_roll_max_to)
         
         self.biexponential_settings = BS = LQCollection()
 
@@ -164,6 +180,11 @@ class TRPLH5View(HyperSpectralBaseView):
         self.biexponential_settings_ui.layout().addWidget(self.set_last_biexponential_res_as_initials_pushButton)
         self.set_last_biexponential_res_as_initials_pushButton.clicked.connect(self.set_last_biexponential_res_as_initials)  
                 
+        self.use_roll_x_target = self.settings.New('use_roll_max_to', bool, initial=False)
+        self.roll_x_target = self.settings.New('roll_x_target', initial=1, unit='[x]')
+        self.use_roll_x_target.add_listener(self.on_change_roll_x_target)
+        self.roll_x_target.add_listener(self.on_change_roll_x_target)
+                        
         self.export_settings = ES = LQCollection()
         ES.New('include_scale_bar', bool, initial = True)
         ES.New('scale_bar_width', initial=0.005, spinbox_decimals=3)
@@ -197,26 +218,19 @@ class TRPLH5View(HyperSpectralBaseView):
         self.settings_dock.raiseDock()
         
         
-    def on_change_roll_max_to(self):
+    def on_change_roll_x_target(self):
         '''
         Note: might call a function which reloads the data
         '''        
-        if self.use_roll_max_to.val:
-            target_x = self.roll_max_to.val
-            x,y = self.get_xy(np.s_[:,:],apply_use_x_slice=False)
+        if self.use_roll_x_target.val:
+            target_x = self.roll_x_target.val
+            arr = self.time_trace_map
+            y = arr.mean( tuple(range(arr.ndim-1)) )
+            x = self.spec_x_array
             delta_index = np.argmin((x-target_x)**2) -  y.argmax()
-            new_roll_offset = (self.roll_offset.val + delta_index) % x.shape[0]
+            new_roll_offset = delta_index % x.shape[0]
             if new_roll_offset != self.roll_offset.val:
                 self.roll_offset.update_value(new_roll_offset)
-        else:
-            pass
-
-    def on_change_roll_offset(self):
-        '''
-        reloads data, the actual rolling is done thereafter in self.post_load()!
-        '''
-        fname = self.databrowser.settings['data_filename']
-        self.on_change_data_filename(fname)
         
     def recalc_taue_map(self):
         self.fit_map(fit_option='tau_x_calc')
@@ -377,6 +391,9 @@ class TRPLH5View(HyperSpectralBaseView):
             self.add_display_image(key, image)        
         taum = (A0*tau0 + A1*tau1) / (A0+A1)
         return(taum)
+    def on_change_roll_offset(self):
+        self.set_hyperspec_data()
+        self.update_display()
     
     def view_specific_save_state_func(self, h5_file):
         h5_group_settings_group = h5_file.create_group('biexponential_settings')
