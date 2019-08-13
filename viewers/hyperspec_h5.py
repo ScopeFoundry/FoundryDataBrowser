@@ -1,8 +1,10 @@
-from ScopeFoundry.data_browser import HyperSpectralBaseView
+#from ScopeFoundry.data_browser import HyperSpectralBaseView
+from FoundryDataBrowser.viewers.hyperspec_base_view import HyperSpectralBaseView
+from FoundryDataBrowser.viewers.plot_n_fit import PeakUtilsFitter
+
 import numpy as np
 import h5py
 import pyqtgraph as pg
-from .scalebars import ConfocalScaleBar
 
 
 class HyperSpecH5View(HyperSpectralBaseView):
@@ -25,6 +27,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
     def setup(self):
         self.settings.New('sample', dtype=str, initial='')
         HyperSpectralBaseView.setup(self)
+        self.plot_n_fit.add_fitter(PeakUtilsFitter())
 
     def is_file_supported(self, fname):
         return np.any([(meas_name in fname)
