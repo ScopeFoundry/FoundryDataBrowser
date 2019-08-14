@@ -140,14 +140,19 @@ class HyperSpectralBaseView(DataBrowserView):
         font = QtGui.QFont("Times", 12)
         font.setBold(True)
         self.x_slicer = RegionSlicer(self.spec_plot, name='x_slice', 
-                                      slicer_updated_func=self.update_display,
+                                      #slicer_updated_func=self.update_display,
                                       brush = QtGui.QColor(0,255,0,50), 
                                       ZValue=10, font=font, initial=[100,511],
                                       activated=True)
         self.bg_slicer = RegionSlicer(self.spec_plot, name='bg_slice', 
-                                      slicer_updated_func=self.update_display,
+                                      #slicer_updated_func=self.update_display,
                                       brush = QtGui.QColor(255,255,255,50), 
                                       ZValue=11, font=font, initial=[0,80], label_line=0)
+        
+                
+        self.x_slicer.region_changed_signal.connect(self.update_display)
+        self.bg_slicer.region_changed_signal.connect(self.update_display)
+        
         self.bg_slicer.activated.add_listener(lambda:self.bg_subtract.update_value('bg_slice') if self.bg_slicer.activated.val else None)        
         self.settings_widgets.append(self.x_slicer.New_UI())
         self.settings_widgets.append(self.bg_slicer.New_UI())      
@@ -427,9 +432,9 @@ class HyperSpectralBaseView(DataBrowserView):
             mag = int(np.log10(w_meter))
             conv_fac, unit = {0: (1,'m'), 
                         -1:(1e2,'cm'),-2:(1e3,'mm'), -3:(1e3,'mm'),
-                        -4:(1e6,'um'),-5:(1e6,'um'), -6:(1e6,'um'),
+                        -4:(1e6,'\u03bcm'),-5:(1e6,'\u03bcm'), -6:(1e6,'\u03bcm'), #\mu
                         -7:(1e9,'nm'),-8:(1e9,'nm'), -9:(1e9,'nm'),
-                        -10:(1e10,'A'),
+                        -10:(1e10,'\u212b'),
                         -11:(1e12,'pm'), -12:(1e12,'pm')}[mag]
                                      
             #matplotlib export           
@@ -471,7 +476,7 @@ class HyperSpectralBaseView(DataBrowserView):
         
 
 
-
+    @QtCore.Slot()
     def update_display(self):
         # pyqtgraph axes are (x,y), but display_images are in (y,x) so we need to transpose        
         if self.display_image is not None:
@@ -585,7 +590,6 @@ class HyperSpectralBaseView(DataBrowserView):
         
           
     def on_change_corr_settings(self):
-        print('on change')
         try:
             xname = self.corr_settings['cor_X_data']
             yname = self.corr_settings['cor_Y_data']
@@ -627,6 +631,7 @@ class HyperSpectralBaseView(DataBrowserView):
             self.corr_plot.setTitle(text)
             
         except Exception as err:
+            print('Error in on_change_corr_settings: {}'.format(err))
             self.databrowser.ui.statusbar.showMessage('Error in on_change_corr_settings: {}'.format(err))
 
     def corr_plot_clicked(self, plotitem, points):
@@ -663,7 +668,7 @@ class HyperSpectralBaseView(DataBrowserView):
                    extent=extent,
                    )
         
-        ES = self.export_settings
+        ES = self.map_export_settings
         if ES['include_scale_bar']:
             add_scale_bar(ax, ES['scale_bar_width'], ES['scale_bar_text'])
         cb = plt.colorbar()

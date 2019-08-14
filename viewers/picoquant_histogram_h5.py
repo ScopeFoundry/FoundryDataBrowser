@@ -5,7 +5,7 @@ Created on May 20, 2019
 '''
 
 from ScopeFoundry.data_browser import DataBrowser, DataBrowserView
-from qtpy import QtWidgets
+from qtpy import QtWidgets, QtCore, QtGui
 
 import numpy as np
 import h5py
@@ -47,13 +47,20 @@ class PicoquantHistogramH5View(DataBrowserView):
             
         # data slicers
         plot_data = self.plot_n_fit.data_lines[0]
-        self.x_slicer = RegionSlicer(plot_data, slicer_updated_func=self.update_display,
+        self.x_slicer = RegionSlicer(plot_data, 
+                                     brush = QtGui.QColor(0,255,0,50), 
                                      name='x_slicer', initial=[10,20], activated=True)
-        self.bg_slicer = RegionSlicer(plot_data, slicer_updated_func=self.update_display,
+        self.x_slicer.region_changed_signal.connect(self.update_display)
+
+        self.bg_slicer = RegionSlicer(plot_data,
+                                      brush = QtGui.QColor(255,255,255,50), 
                                       name='bg_subtract', initial=[0,10], activated=False)     
+        self.bg_slicer.region_changed_signal.connect(self.update_display)
+        
         self.plot_n_fit.settings_layout.insertWidget(0,self.x_slicer.New_UI())
         self.plot_n_fit.settings_layout.insertWidget(1,self.bg_slicer.New_UI())
 
+        
                         
         ##settings dock
         self.settings.New('chan', dtype=int, initial=0)
@@ -88,6 +95,7 @@ class PicoquantHistogramH5View(DataBrowserView):
         self.plot_n_fit.settings_dock.setStretch(1, 1)
         self.plot_n_fit.settings_dock.raiseDock()
 
+    @QtCore.Slot()
     def update_display(self):
         x,y = self.get_xy(apply_use_x_slice=False)
         self.plot_n_fit.update_data(x, y, n_plot=0, is_fit_data=False)
@@ -106,7 +114,7 @@ class PicoquantHistogramH5View(DataBrowserView):
             self.meas = H = self.dat[self.m_base]
             
             self.time_array = H['time_array'][:] * 1e-3 #ns
-            self.histograms = H['time_histogram'][:].reshape(-1, len(self.time_array))           
+            self.histograms = H['time_histogram'][:].reshape(-1, len(self.time_array)) #force shape (Nchan, Nbins)           
                         
             n_chan = self.histograms.shape[0]
             self.settings.chan.change_min_max(0, n_chan-1)
