@@ -230,24 +230,25 @@ class PlotNFit(object):
 
 class BaseFitter(object):
     '''    
-        *fit_params* dict with all params and associated values: 
-                     {
-                     'ParamName0':(initial, lower_bound, upper_bound), 
+        *fit_params* list of parameters to be optimized and associated values: 
+                     [
+                     ['ParamName0', (initial0, lower_bound0, upper_bound0)] 
+                     ['ParamName1', (initial1, lower_bound1, upper_bound1)]
                      ...'
-                     } Note: may be empty    
+                     ] 
                         
         *name*       any string 
         
         Implement `fit_xy(x,y)`
         
-        see also <LeastSquaresBaseFitter>
+        <LeastSquaresBaseFitter> might be easier to use.
         
         other useful function to override:
             process_results
             add_derived_result_quantities
     '''
 
-    fit_params = {}
+    fit_params = []
     name = 'xy_base_fitter'
 
     def __init__(self):
@@ -258,14 +259,15 @@ class BaseFitter(object):
         self.initials = LQCollection()
         self.settings = LQCollection()
 
-        if len(self.fit_params) == 0:
-            print('Warning', self.name, 'has no fit_params')
-
-        for name, (val, lower, upper) in self.fit_params.items():
-            self.bounds.New(name + "_lower", initial=lower)
-            self.bounds.New(name + "_upper", initial=upper)
-            self.initials.New(name, initial=val)
-            self.fit_results.New(name, initial=val)
+        for name, init in self.fit_params:
+            self.fit_results.New(name, initial=0.0)
+            if init is None:
+                continue
+            if len(init) ==3:
+                (val, lower, upper) = init
+                self.bounds.New(name + "_lower", initial=lower)
+                self.bounds.New(name + "_upper", initial=upper)
+                self.initials.New(name, initial=val)
 
         self.use_bounds = self.settings.New('use_bounds', bool, initial=False)
 
@@ -282,6 +284,7 @@ class BaseFitter(object):
                 layout.addWidget(QtWidgets.QLabel(f'<h3>{collection}</h3>'))
                 layout.addWidget(widget)
 
+
         self.result_label = QtWidgets.QLabel()
         layout.addWidget(self.result_label)
         self.add_button('initials from results',
@@ -291,9 +294,10 @@ class BaseFitter(object):
         self.use_bounds.add_listener(lambda: self.bounds_ui.setEnabled(
             self.use_bounds.val))
 
-        self.result_message = self.name + 'result_message message not updated'
+        self.result_message = self.name + ': result_message message not set yet'
 
-        self.highlight_x_vals = []  # add x vals here.
+        self.highlight_x_vals = []  # just a container for x_values that can be used
+
 
     def fit_xy(self, x, y):
         ''' 
@@ -303,26 +307,26 @@ class BaseFitter(object):
             self.initials_array
             self.bounds_array
             
-            self.update_fit_results(fit_results_array, additional_msg) 
+            self.update_fit_results(fit_results, additional_msg) 
                 [recommended if the number of fit_params is fixed]
                 otherwise pass a string to self.set_result_message(message)
+                
+            return fit #this 
         '''
         raise NotImplementedError()
 
-    def update_fit_results(self, fit_results_array, additional_msg=''):
+    def update_fit_results(self, fit_results, additional_msg=''):
         '''
         helper function, which updates the results
         quantitiy collection and sets the result_message.
         the order of *results_array* is the 
-        same as the order of self.fit_results, that is: 
-        [fit_params[0], fit_params[1], ... ,] 
-        
+        same as the order the parameters were defined.        
         Note: this function calls self.process_results
         before updating the results table.
                     
         alternatively pass a string to set_result_message(message)
         '''
-        processed_fit_results = self.process_results(fit_results_array)
+        processed_fit_results = self.process_results(fit_results)
         for val, lq in zip(processed_fit_results, self.fit_results.as_list()):
             lq.update_value(val)
             
@@ -341,18 +345,22 @@ class BaseFitter(object):
         PB.clicked.connect(callback_func)
 
     def add_derived_result_quantities(self):
-        '''add results other than fit_params: self.derived_results.New('resX', ...), 
-        use `process_results` to update the quantities here!
+        '''add results other than fit_params eg: 
+        self.derived_results.New('resX', ...), 
+        use `process_results` to update this quantities!
         '''
         pass
 
-    def process_results(self, fit_results_array):
+    def process_results(self, fit_results):
         '''
         calculate and set derived_results here, this function will be called
-        after update_fit_results, Note: this function has to return the (processed) 
-        fit results in the correct order.'''
-        processed_fit_results_array = fit_results_array
-        return processed_fit_results_array
+        in update_fit_results. The fit_results quantities are set according 
+        to the output of this function. 
+        Hence this function has to return the (processed) fit results in the 
+        correct order, that the order they were defined in fit_params.       
+        '''
+        processed_fit_results = fit_results
+        return processed_fit_results
 
     def add_settings_quantities(self):
         '''
@@ -397,8 +405,8 @@ class BaseFitter(object):
     def fit_hyperspec(self, t, _hyperspec, axis=-1):
         '''
         intended for multidimensional arrays.
-        Convention: this function should fit along axis and should 
-                    return the params along that axis.
+        Convention: this function should fit along *axis* and should 
+                    return the params along the 0th axis! 
         '''
         raise NotImplementedError(self.name +
                                   '_fit_hyperspec() not implemented')
@@ -459,11 +467,13 @@ class LeastSquaresBaseFitter(BaseFitter):
     ''' 
     wrapper scipy.otimize.least_squares and 
         
-        *fit_params* dict with all params and associated values: 
-                     {
-                     'ParamName0':(initial, lower_bound, upper_bound), 
+        *fit_params* list of parameters to be optimized and associated values: 
+                     [
+                     ['ParamName0', (initial0, lower_bound0, upper_bound0)] 
+                     ['ParamName1', (initial1, lower_bound1, upper_bound1)]
                      ...'
-                     } may be empty!
+                     ] 
+
                         
         *name*       any string 
         
@@ -512,32 +522,43 @@ class LeastSquaresBaseFitter(BaseFitter):
 
 class TauXFitter(BaseFitter):
 
-    fit_params = {
-        'tau': (
-            1.0,
-            0.0,
-            1e10,
-        ),
-    }
+    fit_params = [ ['tau_x', None] ]
 
     name = 'tau_x'
 
     def fit_xy(self, x, y):
-        t = x.copy()
-        t -= t.min()
-        tau = tau_x_calc(y, t)
+                                
 
-        self.update_fit_results([tau])
+        t = x-x.min()
 
-        return y
+        tau = tau_x_calc(y-y[-3:].mean(), t)
+
+        '''
+        there is an inaccuracy from integrating over a finite time interval rather than
+        to infinity. 
+        '''
+        decay_pct = (1 - y[-3:].mean()**2 / y[0:3].mean()**2 ) * 100 # should be 100%
+        inaccuracy_pct = (1 - np.exp( -tau / t.max())) * 100         # should be 0
+        
+        msg1 = f'decay level: {decay_pct:0.1f}%'.rjust(100)
+        msg2 = f'normalization inaccuracy: {inaccuracy_pct:0.1f}%'.rjust(100)
+        self.update_fit_results([tau], msg1 + '<br>' + msg2)
+
+        # Error from not integrating over 
+
+        return y[0:3].mean() * np.exp(-t / tau)
+
 
     def fit_hyperspec(self, x, _hyperspec, axis=-1):
         return tau_x_calc_map(x, _hyperspec, axis=axis)
+    
+    def hyperspec_descriptions(self):
+        return ['tau_x']
 
 
 def tau_x_calc(time_trace, time_array, X=0.6321205588300001):
-    t = time_trace
-    return time_array[np.argmin(np.abs(np.cumsum(t) / np.sum(t) - X))]
+    f = time_trace
+    return time_array[ np.argmin( (np.cumsum(f) / np.sum(f) - X)**2 ) ]
 
 
 def tau_x_calc_map(time_array, time_trace_map, X=0.6321205588300001, axis=-1):
@@ -552,6 +573,7 @@ class PolyFitter(BaseFitter):
 
     def add_settings_quantities(self):
         self.settings.New('deg', int, initial=1)
+        
 
     def transform(self, x, y):
         return x, y
@@ -609,7 +631,11 @@ class SemiLogYPolyFitter(PolyFitter):
 
 class MonoExponentialFitter(LeastSquaresBaseFitter):
 
-    fit_params = {'A0': (1.0, 0.0, 1e10), 'tau0': (1.0, 0.0, 1e10)}
+    fit_params = [ 
+       ['A0',   (1.0, 0.0, 1e10)],
+       ['tau0', (1.0, 0.0, 1e10)],
+    ]
+    
     name = 'mono_exponential'
 
     def func(self, params, x):
@@ -618,16 +644,12 @@ class MonoExponentialFitter(LeastSquaresBaseFitter):
 
 class BiExponentialFitter(LeastSquaresBaseFitter):
 
-    fit_params = {
-        'A0': (
-            1.0,
-            0.0,
-            1e10,
-        ),
-        'tau0': (1.0, 0.0, 1e10),
-        'A1': (1.0, 0.0, 1e10),
-        'tau1': (9.9, 0.0, 1e10),
-    }
+    fit_params = [
+        ['A0',   (1.0, 0.0, 1e10)],
+        ['tau0', (1.0, 0.0, 1e10)],
+        ['A1',   (1.0, 0.0, 1e10)],
+        ['tau1', (9.9, 0.0, 1e10)],
+    ]
 
     name = 'bi_exponetial'
 
@@ -640,8 +662,8 @@ class BiExponentialFitter(LeastSquaresBaseFitter):
         self.derived_results.New('A0_pct', float, initial=10, unit='%')
         self.derived_results.New('A1_pct', float, initial=10, unit='%')
 
-    def process_results(self, fit_results_array):
-        A0, tau0, A1, tau1 = fit_results_array
+    def process_results(self, fit_results):
+        A0, tau0, A1, tau1 = fit_results
         A0, tau0, A1, tau1 = sort_biexponential_components(A0, tau0, A1, tau1)
 
         A0_norm, A1_norm = A0 / (A0 + A1), A1 / (A0 + A1)
@@ -710,7 +732,7 @@ class PeakUtilsFitter(BaseFitter):
 
         PS = self.settings
         import peakutils
-        fit = base = 1.0 * peakutils.baseline(y, PS['baseline_deg'])
+        base = 1.0 * peakutils.baseline(y, PS['baseline_deg'])
 
         if PS['min_dist'] < 0:
             min_dist = int(len(x) / 2)
@@ -730,7 +752,8 @@ class PeakUtilsFitter(BaseFitter):
         html_table = _table2html(res_table, header)
         self.set_result_message(html_table)
 
-        return fit
+        # have to return something of len(x) to plot
+        return base
 
     def fit_hyperspec(self, x, _hyperspec, axis=-1):
         PS = self.settings
@@ -799,12 +822,12 @@ if __name__ == '__main__':
     app = QtWidgets.QApplication([])
 
     W = PlotNFit(fitters=[
-        BiExponentialFitter(),
+        #BiExponentialFitter(),
         MonoExponentialFitter(),
         TauXFitter(),
-        PolyFitter(),
-        SemiLogYPolyFitter(),
-        PeakUtilsFitter(),
+        #PolyFitter(),
+        #SemiLogYPolyFitter(),
+        #PeakUtilsFitter(),
     ])
 
     A = W.get_docks_as_dockarea()
@@ -812,17 +835,17 @@ if __name__ == '__main__':
     A.show()
 
     # Test latest fitter:
-    x = np.arange(120) / 12
+    x = np.arange(1200) / 12
 
-    y = np.exp(-x / 10.0) + 0.01 * np.random.rand(len(x))
+    y = np.exp(-x / 8.0) + 0.01 * np.random.rand(len(x))
     #y = x - 10 + 0.001 * np.random.rand(len(x))
 
     W.update_data(x, y)
 
-    x, y, = x[5:110], y[5:110]
+    x, y, = x[10:1100], y[10:1100]
     W.update_fit_data(x, y)
 
-    hyperspec = np.array([y, y, y, y, y, y]).reshape((3, 2, len(x)))
+    hyperspec = np.array([y, y*2, y*3, y*4, y*5, y*6]).reshape((3, 2, len(x)))
 
     print(W.fit_hyperspec(x, hyperspec, -1))
 
