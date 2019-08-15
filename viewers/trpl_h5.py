@@ -204,11 +204,11 @@ class TRPLH5View(HyperSpectralBaseView):
     
     def gather_plot_data_for_export(self):        
         export_dict = {}
-        if self.advanced_settings['show_circ_line']:
+        if self.settings['show_circ_line']:
             x,y = self.get_xy(ji_slice=self.rect_roi_slice, apply_use_x_slice = False)
             x_shift = x[y.argmax()]
             export_dict.update({'point data':(x-x_shift,y)})
-        if self.advanced_settings['show_rect_line']:
+        if self.settings['show_rect_line']:
             x,y = self.get_xy(ji_slice=self.rect_roi_slice, apply_use_x_slice = False)
             x_shift = x[y.argmax()]                
             export_dict.update({'rectangle data':(x-x_shift,y)})
@@ -249,20 +249,20 @@ class TRPLH5View(HyperSpectralBaseView):
         ES = self.export_settings
                 
         P = self.plot_n_fit
-
                 
-        L = self.x_slicer.settings['start'] - self.x_slicer.settings['stop']
+        L =  self.x_slicer.settings['stop'] - self.x_slicer.settings['start']
         
-                
         plt.figure()
         ax = plt.subplot(111)
         
-    
+        y_lim = [None, None]
+        x_lim = [None, None]
+        
         for label,(x,y) in self.gather_plot_data_for_export().items():
             ax.semilogy(x,y, label = label)            
-            if len(x) == L:
-                y_lim = [0.99*y[-1], 1.01*y[0]]
-                x_lim = [0.99*x[0], x[-1]]
+            if len(y) == L:
+                y_lim = [0.9*y[-1], 1.05*y[0]]
+                x_lim = [0.99*x[0], x[-1]*1.1]
             
                 
         # Apply limits
