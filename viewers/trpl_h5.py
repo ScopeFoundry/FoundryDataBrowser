@@ -22,7 +22,10 @@ class TRPLH5View(HyperSpectralBaseView):
 
     def load_data(self, fname):
         if hasattr(self, 'h5_file'):
-            self.h5_file.close()
+            try:
+                self.h5_file.close()
+            except Exception as err:
+                print("Could not close old h5 file:", err)
             del self.h5_file
         
         self.h5_file = h5py.File(fname)        
