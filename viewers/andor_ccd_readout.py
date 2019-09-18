@@ -1,7 +1,7 @@
 from ScopeFoundry.data_browser import DataBrowserView
+from FoundryDataBrowser.viewers.plot_n_fit import PlotNFit, PeakUtilsFitter
 import numpy as np
 import h5py
-import pyqtgraph as pg
 
 class AndorCCDReadout(DataBrowserView):
     
@@ -9,10 +9,10 @@ class AndorCCDReadout(DataBrowserView):
     
     def setup(self):
         
-        self.ui = self.graph_layout = pg.GraphicsLayoutWidget()
-        self.plot = self.graph_layout.addPlot(title="Andor CCD Spectrum")
-        
-        self.plotline = self.plot.plot()
+        self.plot_n_fit = PlotNFit(fitters=[PeakUtilsFitter()])                
+        self.ui = self.plot_n_fit.get_docks_as_dockarea()
+        self.plot_n_fit.settings['fit_options'] = 'DisableFit'
+
         
     def is_file_supported(self, fname):
         return "andor_ccd_readout.npz" in fname or "andor_ccd_readout.h5" in fname
@@ -33,8 +33,9 @@ class AndorCCDReadout(DataBrowserView):
                 self.spec = np.array(self.M['spectrum']).sum(axis=0)
                 self.wls = np.array(self.M['wls'])
                 
-            self.plotline.setData(self.wls, self.spec)
+            self.plot_n_fit.update_data(self.wls, self.spec)
+            
         except Exception as err:
-            self.plotline.setData(0)
+            self.plot_n_fit.update_data([0,1,2,3],[1,3,2,4])
             self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
             raise(err)

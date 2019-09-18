@@ -1,7 +1,7 @@
 from ScopeFoundry.data_browser import DataBrowser, DataBrowserView
 import pyqtgraph as pg
 import numpy as np
-from scipy.misc import imread
+from matplotlib.pylab import imread #scipy.misc.imread is depreciated!
 import os
 import pyqtgraph.dockarea
 from qtpy import QtCore, QtWidgets

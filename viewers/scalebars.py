@@ -136,7 +136,7 @@ class SEMScaleBar(WorkingScaleBar):
         else:
             suffix = 'm'
         WorkingScaleBar.__init__(self, size, val=val, width=width, pen=pen,
-                                 suffix=suffix, offset=offset)
+                                 brush=brush, suffix=suffix, offset=offset)
 
 
 class ConfocalScaleBar(WorkingScaleBar):
@@ -186,4 +186,4 @@ class ConfocalScaleBar(WorkingScaleBar):
             suffix = 'px'
 
         WorkingScaleBar.__init__(self, size, val=val, width=width, pen=pen,
-                                 suffix=suffix, offset=offset)
+                                 brush=brush, suffix=suffix, offset=offset)

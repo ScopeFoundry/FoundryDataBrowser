@@ -1,7 +1,7 @@
 from ScopeFoundry.data_browser import DataBrowserView
 import pyqtgraph as pg
 import h5py
-from qtpy import QtWidgets
+from qtpy import QtWidgets, QtCore
 import numpy as np
 from ScopeFoundry.widgets import RegionSlicer
 
@@ -62,21 +62,22 @@ class PowerScanH5View(DataBrowserView):
 
         
         self.power_plot_slicer = RegionSlicer(self.power_plotcurve, name='fit slicer',
-                                              slicer_updated_func=self.redo_fit,
                                               activated = True,
                                               )        
+        self.power_plot_slicer.region_changed_signal.connect(self.redo_fit)
         settings_layout.addWidget(self.power_plot_slicer.New_UI(),3,0)
 
         self.spec_x_slicer = RegionSlicer(self.spec_plotcurve, name='spec slicer',
-                                     slicer_updated_func=self.update_power_plotcurve,
                                      activated = False,
                                     )
+        self.spec_x_slicer.connect(self.update_power_plotcurve)
         settings_layout.addWidget(self.spec_x_slicer.New_UI(),3,1)
         
+        
         self.bg_slicer = RegionSlicer(self.spec_plotcurve, name='bg subtract',
-                                     slicer_updated_func=self.update_power_plotcurve,
                                      activated = False,
                                     )
+        self.bg_slicer.connect(self.update_power_plotcurve)
         settings_layout.addWidget(self.bg_slicer.New_UI(),3,2)
         
     
@@ -166,7 +167,8 @@ class PowerScanH5View(DataBrowserView):
         power_wheel_position = self.power_arrays['power_wheel_position'][ii]
         self.databrowser.ui.statusbar.showMessage("power_wheel_position: {:1.1f}".format(power_wheel_position))
         self.spec_plot.setTitle("power_wheel_position: {:1.1f}".format(power_wheel_position), color='r')
-        
+
+    @QtCore.Slot()
     def update_power_plotcurve(self):      
         self.X = self.get_power_x() 
         self.Y = self.get_power_y(True)        
@@ -174,6 +176,7 @@ class PowerScanH5View(DataBrowserView):
         self.on_spec_index_change()
         self.redo_fit()
 
+    @QtCore.Slot()
     def redo_fit(self):
         s = self.power_plot_slicer.mask
         m, b = np.polyfit(np.log10(self.X[s]), np.log10(self.Y[s]), deg=1)

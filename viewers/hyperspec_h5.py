@@ -1,8 +1,10 @@
-from ScopeFoundry.data_browser import HyperSpectralBaseView
+#from ScopeFoundry.data_browser import HyperSpectralBaseView
+from FoundryDataBrowser.viewers.hyperspec_base_view import HyperSpectralBaseView
+from FoundryDataBrowser.viewers.plot_n_fit import PeakUtilsFitter
+
 import numpy as np
 import h5py
 import pyqtgraph as pg
-from .scalebars import ConfocalScaleBar
 
 
 class HyperSpecH5View(HyperSpectralBaseView):
@@ -25,6 +27,7 @@ class HyperSpecH5View(HyperSpectralBaseView):
     def setup(self):
         self.settings.New('sample', dtype=str, initial='')
         HyperSpectralBaseView.setup(self)
+        self.plot_n_fit.add_fitter(PeakUtilsFitter())
 
     def is_file_supported(self, fname):
         return np.any([(meas_name in fname)
@@ -38,11 +41,13 @@ class HyperSpecH5View(HyperSpectralBaseView):
             del self.dat
 
     def load_data(self, fname):
+        print(self.name, 'loading', fname)
         self.dat = h5py.File(fname)
         for meas_name in self.supported_measurements:
             if meas_name in self.dat['measurement']:
                 self.M = self.dat['measurement'][meas_name]
 
+        self.spec_map = None
         for map_name in ['hyperspectral_map', 'spec_map']:
             if map_name in self.M:
                 self.spec_map = np.array(self.M[map_name])
@@ -57,7 +62,9 @@ class HyperSpecH5View(HyperSpectralBaseView):
                     self.spec_map = np.delete(self.spec_map,
                                               self.M['dark_indices'],
                                               -1)
-
+        if self.spec_map is None:
+            self.spec_map = np.zeros((10,10,10))
+            raise ValueError("Specmap not found")
         self.hyperspec_data = self.spec_map
         self.display_image = self.hyperspec_data.sum(axis=-1)
         self.spec_x_array = np.arange(self.hyperspec_data.shape[-1])
