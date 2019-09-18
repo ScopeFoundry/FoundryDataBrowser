@@ -44,6 +44,9 @@ app.load_view(PicoHarpNPZView(app))
 from viewers.picoharp_histogram_h5 import PicoHarpHistogramH5View
 app.load_view(PicoHarpHistogramH5View(app))
 
+from viewers.picoquant_histogram_h5 import PicoquantHistogramH5View
+app.load_view(PicoquantHistogramH5View(app))
+
 from viewers.hyperspec_npz import HyperSpecNPZView
 app.load_view(HyperSpecNPZView(app))
 
@@ -111,5 +114,11 @@ app.load_view(TRPLH5View(app))
 
 from viewers.power_spec_logger_view import PowerSpectrumLoggerView
 app.load_view(PowerSpectrumLoggerView(app))
+
+from viewers.iv_h5 import IVH5View, IVTRPLH5View
+app.load_view(IVH5View(app))
+app.load_view(IVTRPLH5View(app))
+
+
 
 sys.exit(app.exec_())

@@ -30,14 +30,12 @@ class HyperSpecH5View(HyperSpectralBaseView):
         return np.any([(meas_name in fname)
                        for meas_name in self.supported_measurements])
 
+
     def reset(self):
+        HyperSpectralBaseView.reset(self)
         if hasattr(self, 'dat'):
             self.dat.close()
             del self.dat
-
-        if hasattr(self,'scalebar'):
-            self.imview.getView().removeItem(self.scalebar)
-            del self.scalebar
 
     def load_data(self, fname):
         self.dat = h5py.File(fname)
@@ -49,10 +47,10 @@ class HyperSpecH5View(HyperSpectralBaseView):
             if map_name in self.M:
                 self.spec_map = np.array(self.M[map_name])
                 if 'h_span' in self.M['settings'].attrs:
-                    self.h_span = float(self.M['settings'].attrs['h_span'])
+                    h_span = float(self.M['settings'].attrs['h_span'])
                     units = self.M['settings/units'].attrs['h0']
-                    if units == 'mm':
-                        self.h_span = self.h_span*1e-3
+                    self.set_scalebar_params(h_span, units)
+                    
                 if len(self.spec_map.shape) == 4:
                     self.spec_map = self.spec_map[0, :, :, :]
                 if 'dark_indices' in list(self.M.keys()):
@@ -78,27 +76,6 @@ class HyperSpecH5View(HyperSpectralBaseView):
         sample = self.dat['app/settings'].attrs['sample']
         self.settings.sample.update_value(sample)
 
-    def update_display(self):
-        if hasattr(self, 'scalebar'):
-            self.imview.getView().removeItem(self.scalebar)
-
-        if self.display_image is not None:
-            # pyqtgraph axes are x,y, but data is stored in (frame, y,x, time),
-            # so we need to transpose
-            self.imview.getImageItem().setImage(self.display_image.T)
-
-            nn = self.display_image.shape
-
-            if hasattr(self, 'h_span'):
-                span = self.h_span
-            else:
-                span = -1
-            self.scalebar = ConfocalScaleBar(span=span, num_px=nn[0])
-            self.scalebar.setParentItem(self.imview.getView())
-            self.scalebar.anchor((1, 1), (1, 1), offset=(-20, -20))
-            
-            self.on_change_rect_roi()
-            self.on_update_circ_roi()
 
 
 def matplotlib_colormap_to_pg_colormap(colormap_name, n_ticks=16):
