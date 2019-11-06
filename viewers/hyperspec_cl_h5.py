@@ -12,13 +12,15 @@ class HyperSpecCLH5View(HyperSpectralBaseView):
     def load_data(self, fname):    
         self.dat = h5py.File(fname)
         self.M = self.dat['measurement/hyperspec_cl']
+        self.wls = self.M['wls']
         self.spec_map = self.M['spec_map'][0,0,:,:,:]
         print(self.spec_map.shape)
         #self.integrated_count_map = self.dat['integrated_count_map']
 
         self.hyperspec_data = self.spec_map
         self.display_image = self.spec_map.sum(axis=-1)
-        self.spec_x_array = np.arange(self.spec_map.shape[-1]) #self.dat['wls']
+        #self.spec_x_array = np.arange(self.spec_map.shape[-1]) #self.dat['wls']
+        self.spec_x_array = self.wls
         
     def scan_specific_setup(self):
         self.spec_plot.setLabel('left', 'Intensity', units='counts')
