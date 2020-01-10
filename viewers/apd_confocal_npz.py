@@ -65,29 +65,30 @@ class ApdConfocal3dNPZView(DataBrowserView):
     
     def update_display(self):
         
+        if hasattr(self,"dat"):
         
-        ii = self.settings['index']
-        plane = self.settings['plane']
-        
-        if plane == 'xy':        
-            arr_slice = np.s_[ii,:,:]
-            index_max = self.dat['count_rate_map'].shape[0]
-        elif plane == 'yz':
-            arr_slice = np.s_[:,:,ii]
-            index_max = self.dat['count_rate_map'].shape[2]
-        elif plane == 'xz':
-            arr_slice = np.s_[:,ii,:]
-            index_max = self.dat['count_rate_map'].shape[1] 
-
-        self.settings.index.change_min_max(0, index_max)
-        
-        
-        self.imview.setImage(self.dat['count_rate_map'][arr_slice], autoLevels=self.settings['auto_level'], )
-
-        other_ax = dict(xy='z', yz='x', xz='y' )[plane]
-
-        self.info_label.setText("{} plane {}={} um (index={})".format(
-            plane, other_ax, self.dat[other_ax+'_array'][ii], ii))
+            ii = self.settings['index']
+            plane = self.settings['plane']
+            
+            if plane == 'xy':        
+                arr_slice = np.s_[ii,:,:]
+                index_max = self.dat['count_rate_map'].shape[0]
+            elif plane == 'yz':
+                arr_slice = np.s_[:,:,ii]
+                index_max = self.dat['count_rate_map'].shape[2]
+            elif plane == 'xz':
+                arr_slice = np.s_[:,ii,:]
+                index_max = self.dat['count_rate_map'].shape[1] 
+    
+            self.settings.index.change_min_max(0, index_max)
+            
+            
+            self.imview.setImage(self.dat['count_rate_map'][arr_slice], autoLevels=self.settings['auto_level'], )
+    
+            other_ax = dict(xy='z', yz='x', xz='y' )[plane]
+    
+            self.info_label.setText("{} plane {}={} um (index={})".format(
+                plane, other_ax, self.dat[other_ax+'_array'][ii], ii))
 
 
         

@@ -21,6 +21,8 @@ class AugerSpecMapView(DataBrowserView):
     
     def setup(self):
         
+        self.data_loaded = False
+        
         self.settings.New('drift_correct_type', dtype=str, initial='Pairwise', choices=('Pairwise','Pairwise + Running Avg'))
         
         self.settings.New('drift_correct_adc_chan', dtype=int)
@@ -196,10 +198,12 @@ class AugerSpecMapView(DataBrowserView):
         return "auger_sync_raster_scan.h5" in fname
 
     def on_change_data_filename(self, fname=None):
+        if fname == "0":
+            return
         try:
             # FIX: Should close the h5 file that was previously open
             # FIX: h5 file should also be closed on program close
-            
+            self.data_loaded = False
             self.fname = fname
             print('opening hdf5 file...')
             self.dat = h5py.File(self.fname, 'r+')
@@ -219,7 +223,7 @@ class AugerSpecMapView(DataBrowserView):
             
 #             # Close the h5 dataset, everything is stored in current memory now
 #             self.dat.close()
-            
+            self.data_loaded = True
             self.load_new_data()
             
             #self.update_display()
@@ -230,6 +234,8 @@ class AugerSpecMapView(DataBrowserView):
             raise(err)
     
     def preprocess(self):
+        if not self.data_loaded:
+            return
         if self.settings['drift_correct']:
             # Need to read existing datasets here in case of changes since loading file initially
             h_datasets = list(self.H.keys())
@@ -360,6 +366,9 @@ class AugerSpecMapView(DataBrowserView):
 #             self.auger_map = specstack
             
     def load_new_data(self):
+        if not self.data_loaded:
+            return
+        
         if self.settings['use_preprocess']:
             h_datasets = list(self.H.keys())
             if 'adc_map_prep' in h_datasets:
@@ -393,6 +402,8 @@ class AugerSpecMapView(DataBrowserView):
         self.update_current_auger_map()
     
     def on_change_ke_settings(self):
+        if not self.data_loaded:
+            return
         
         print ("on_change_ke_settings")
         S = self.settings
@@ -436,14 +447,21 @@ class AugerSpecMapView(DataBrowserView):
         self.lr1.setRegion((S['ke1_start'], S['ke1_stop']))
     
     def on_change_math_mode(self):
+        if not self.data_loaded:
+            return        
         self.imview_auger.setImage(self.compute_image(self.A,self.B))
     
     def on_change_roi(self):
+        if not self.data_loaded:
+            return
+        
         # Only need to update the spectrum if being calculated over ROI
         if self.settings['spectrum_over_ROI']:
             self.update_spectrum_display()
     
     def on_change_scalebar(self):
+        if not self.data_loaded:
+            return
         # Calculate the scale length (in pixels for now)
         scale_length = self.scalebar.size().x()
         # Calculate scale bar position and local midpoint
@@ -477,6 +495,9 @@ class AugerSpecMapView(DataBrowserView):
         self.scale_text.setAngle(self.scalebar.angle())
            
     def on_change_regions(self):
+        if not self.data_loaded:
+            return
+        
         S = self.settings
         S['ke0_start'], S['ke0_stop'] = self.lr0.getRegion()
         S['ke1_start'], S['ke1_stop'] = self.lr1.getRegion()
@@ -488,12 +509,16 @@ class AugerSpecMapView(DataBrowserView):
         self.update_spectrum_display()
         
     def on_change_mean_spectrum_only(self):
+        if not self.data_loaded:
+            return
         print('mean_spectrum_only')
         for ii in range(7):
             self.chan_plotlines[ii].setVisible(not(self.settings['mean_spectrum_only']))
         self.legend.setVisible(not(self.settings['mean_spectrum_only']))
     
     def calculate_detector_efficiencies(self):
+        if not self.data_loaded:
+            return
         # Step 1. Identify and extract data to compare
         
         # Determine highest, lowest, and middle energy detectors
@@ -537,6 +562,8 @@ class AugerSpecMapView(DataBrowserView):
         self.det_eff = np.sum(data_join, axis=1)/np.sum(data_join[det_med,:])
         
     def compute_image(self, A,B):
+        if not self.data_loaded:
+            return        
         mm = self.settings['math_mode']
         return np.transpose(eval(mm))
         
@@ -614,6 +641,8 @@ class AugerSpecMapView(DataBrowserView):
             self.on_change_ke_settings() 
     
     def update_spectrum_display(self):
+        if not self.data_loaded:
+            return
         
         # Calculate the average spectrum over the image OR the ROI
         if self.settings['spectrum_over_ROI']:

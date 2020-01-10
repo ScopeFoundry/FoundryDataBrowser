@@ -66,12 +66,7 @@ class TRPL_t_x_lifetime_BaseView(HyperSpectralBaseView):
         #self.splitter.insertWidget(0, self.settings_ui )
         self.dockarea.addDock(name='settings', widget=self.settings_ui, position='left')
         
-        self.settings.kk_start.add_listener(self.on_update_kk_bounds)
-        self.settings.kk_stop.add_listener(self.on_update_kk_bounds) 
         
-        for lqname in ['kk_start', 'kk_stop', 'bg_sub', 'e_exp',
-                       'spatial_blur', 'blur_sigma', 'map_display']:
-            self.settings.get_lq(lqname).add_listener(self.on_param_changes)
                
             
         # set spectral plot to be semilog-y
@@ -89,15 +84,28 @@ class TRPL_t_x_lifetime_BaseView(HyperSpectralBaseView):
         
         self.point_plotdata_bgsub = self.spec_plot.plot(pen='g')
         
+        for lqname in ['kk_start', 'kk_stop', 'bg_sub', 'e_exp',
+                       'spatial_blur', 'blur_sigma', 'map_display']:
+            self.settings.get_lq(lqname).add_listener(self.on_param_changes)
+
+        
+        self.settings.kk_start.add_listener(self.on_update_kk_bounds)
+        self.settings.kk_stop.add_listener(self.on_update_kk_bounds)
+        
+        self.time_array = np.arange(101)
+        self.num_hist_chans = 100
+        
+        
 
     def on_update_circ_roi(self, roi=None):
         HyperSpectralBaseView.on_update_circ_roi(self, roi=roi)
         
         
         j,i = self.circ_roi_ji
-        self.point_plotdata_bgsub.setData(self.time_array[0:self.num_hist_chans],
-                                          (self.time_trace_map_bgsub[j,i,0:self.num_hist_chans])+1)
-        self.tau_x_vline.setPos(self.time_array[self.settings['kk_start']] + self.tau_x_map[j,i])
+        if hasattr(self, 'time_trace_map_bgsub'):
+            self.point_plotdata_bgsub.setData(self.time_array[0:self.num_hist_chans],
+                                              (self.time_trace_map_bgsub[j,i,0:self.num_hist_chans])+1)
+            self.tau_x_vline.setPos(self.time_array[self.settings['kk_start']] + self.tau_x_map[j,i])
         
     def on_update_kk_bounds(self):
         self.kk_start_vline.setPos(self.time_array[self.settings['kk_start']])
@@ -108,6 +116,8 @@ class TRPL_t_x_lifetime_BaseView(HyperSpectralBaseView):
             self.compute_lifetime_map()
         
     def compute_lifetime_map(self):
+        if not hasattr(self, 'time_trace_map'):
+            return
         
         if self.settings['spatial_blur']:
             s = self.settings['blur_sigma']

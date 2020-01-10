@@ -48,8 +48,6 @@ class TRPL3dNPZView(HyperSpectralBaseView):
         self.settings.New('plane', dtype=str, initial='xy', choices=('xy', 'yz', 'xz'))
         self.settings.New('index', dtype=int)
         self.settings.New('auto_level', dtype=bool, initial=True)
-        for name in ['plane', 'index', 'auto_level']:
-            self.settings.get_lq(name).add_listener(self.update_display)
         
         #self.ui = QtWidgets.QWidget()
         #self.ui.setLayout(QtWidgets.QVBoxLayout())
@@ -61,21 +59,30 @@ class TRPL3dNPZView(HyperSpectralBaseView):
         
         #self.graph_layout = pg.GraphicsLayoutWidget()
         #self.graph_layout.addPlot()
-        
-    def on_change_data_filename(self, fname):
-        
-        try:
-            TRPLNPZView.load_data(self, fname)
-            self.update_display()
-        except Exception as err:
-            self.imview.setImage(np.zeros((10,10)))
-            self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
-            raise(err)
+
+        for name in ['plane', 'index', 'auto_level']:
+            self.settings.get_lq(name).add_listener(self.update_display)
+
+    
+    def load_data(self, fname):
+        TRPLNPZView.load_data(self, fname)
+
+#     def on_change_data_filename(self, fname):
+#         
+#         try:
+#             TRPLNPZView.load_data(self, fname)
+#             self.update_display()
+#         except Exception as err:
+#             self.imview.setImage(np.zeros((10,10)))
+#             self.databrowser.ui.statusbar.showMessage("failed to load %s:\n%s" %(fname, err))
+#             raise(err)
         
     def is_file_supported(self, fname):
         return "trpl_scan3d.npz" in fname
     
     def update_display(self):
+        if not hasattr(self, 'dat'):
+            return 
         
         ii = self.settings['index']
         plane = self.settings['plane']

@@ -25,12 +25,15 @@ from qtpy import QtCore, QtWidgets, QtGui
 import pyqtgraph as pg
 import pyqtgraph.dockarea as dockarea
 from lxml import includes
+import traceback
 
 class HyperSpectralBaseView(DataBrowserView):
     
     name = 'HyperSpectralBaseView'
     
     def setup(self):
+
+        self.data_loaded = False
 
         ## Dummy data Structures (override in func:self.load_data())
         self.hyperspec_data = np.arange(10*10*34).reshape( (10,10,34) )
@@ -378,10 +381,14 @@ class HyperSpectralBaseView(DataBrowserView):
         pass    
     
     def on_change_data_filename(self, fname):
+        self.data_loaded = False
         self.reset()
+        if fname == "0":
+            return
         try:
             self.scalebar_type = None
             self.load_data(fname)
+            self.data_loaded = True
             if self.settings['spatial_binning'] != 1:
                 self.hyperspec_data = bin_2D(self.hyperspec_data, self.settings['spatial_binning'])
                 self.display_image = bin_2D(self.display_image, self.settings['spatial_binning'])
@@ -590,6 +597,8 @@ class HyperSpectralBaseView(DataBrowserView):
         
           
     def on_change_corr_settings(self):
+        if not self.data_loaded:
+            return
         try:
             xname = self.corr_settings['cor_X_data']
             yname = self.corr_settings['cor_Y_data']
@@ -631,7 +640,7 @@ class HyperSpectralBaseView(DataBrowserView):
             self.corr_plot.setTitle(text)
             
         except Exception as err:
-            print('Error in on_change_corr_settings: {}'.format(err))
+            print('Error in on_change_corr_settings: {}'.format(err), traceback.format_exc())
             self.databrowser.ui.statusbar.showMessage('Error in on_change_corr_settings: {}'.format(err))
 
     def corr_plot_clicked(self, plotitem, points):

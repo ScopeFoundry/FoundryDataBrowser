@@ -76,6 +76,8 @@ class APD_MCL_3DSlowScanView(DataBrowserView):
 
     def update_display(self):
         
+        if not hasattr(self, 'im_data'):
+            return
         
         ii = self.settings['index']
         plane = self.settings['plane']

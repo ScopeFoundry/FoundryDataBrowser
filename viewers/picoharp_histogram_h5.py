@@ -13,8 +13,6 @@ class PicoHarpHistogramH5View(DataBrowserView):
         self.settings.New('rebin', dtype=bool, initial=False)
         self.settings.New('rebin_time', dtype=int, initial=4, unit='ps', choices=tuple(4*2**np.arange(0,10)))
         
-        self.settings.rebin.add_listener(self.on_rebin)
-        self.settings.rebin_time.add_listener(self.on_rebin)
         
         # settings from file
         self.settings.New('sample', dtype=str, ro=True)
@@ -37,6 +35,10 @@ class PicoHarpHistogramH5View(DataBrowserView):
         self.plot = self.graph_layout.addPlot()
         self.plotdata = self.plot.plot(pen='r')
         self.plot.setLogMode(False, True)
+        
+        self.settings.rebin.add_listener(self.on_rebin)
+        self.settings.rebin_time.add_listener(self.on_rebin)
+
         
     def on_change_data_filename(self, fname):
         

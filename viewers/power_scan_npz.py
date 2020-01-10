@@ -13,7 +13,6 @@ class PowerScanNPZView(DataBrowserView):
     def setup(self):
         
         self.settings.New('spec_index', dtype=int, initial=0)
-        self.settings.spec_index.add_listener(self.on_spec_index_change)
         
         self.ui = QtWidgets.QGroupBox()
         self.ui.setLayout(QtWidgets.QVBoxLayout())
@@ -52,9 +51,13 @@ class PowerScanNPZView(DataBrowserView):
         
         self.spec_plot = self.graph_layout.addPlot()
         self.spec_plotcurve = self.spec_plot.plot([0])
+        self.settings.spec_index.add_listener(self.on_spec_index_change)
+        
         
         
     def on_change_data_filename(self, fname=None):
+        if fname == "0":
+            return
 
         try:        
             dat = self.dat = np.load(fname)

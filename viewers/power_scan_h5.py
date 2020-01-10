@@ -14,6 +14,13 @@ class PowerScanH5View(DataBrowserView):
         return('power_scan' in fname) and ('.h5' in fname)
             
     def setup(self):
+        #self.X = np.arange(101)
+        #self.Y = np.ones(101)
+        #self.power_arrays = {}
+        self.data_loaded = False
+
+
+        
         self.settings.New('spec_index', dtype=int, initial=0)
         self.settings.spec_index.add_listener(self.on_spec_index_change)
         
@@ -22,7 +29,6 @@ class PowerScanH5View(DataBrowserView):
 
         self.power_x_axis_choices = ('pm_powers', 'pm_powers_after', 'power_wheel_position')
         self.settings.New("power_x_axis", dtype=str, initial='pm_powers', choices=self.power_x_axis_choices)
-        self.settings.power_x_axis.add_listener(self.on_change_power_x_axis)
         
         self.ui = QtWidgets.QGroupBox()
         self.ui.setLayout(QtWidgets.QVBoxLayout())
@@ -70,21 +76,27 @@ class PowerScanH5View(DataBrowserView):
         self.spec_x_slicer = RegionSlicer(self.spec_plotcurve, name='spec slicer',
                                      activated = False,
                                     )
-        self.spec_x_slicer.connect(self.update_power_plotcurve)
+        self.spec_x_slicer.region_changed_signal.connect(self.update_power_plotcurve)
         settings_layout.addWidget(self.spec_x_slicer.New_UI(),3,1)
         
         
         self.bg_slicer = RegionSlicer(self.spec_plotcurve, name='bg subtract',
                                      activated = False,
                                     )
-        self.bg_slicer.connect(self.update_power_plotcurve)
+        self.bg_slicer.region_changed_signal.connect(self.update_power_plotcurve)
         settings_layout.addWidget(self.bg_slicer.New_UI(),3,2)
         
     
+        self.settings.power_x_axis.add_listener(self.on_change_power_x_axis)
+        
+
         
     def on_change_data_filename(self, fname=None):
+        if fname == "0":
+            return
 
-        try:        
+        try:
+            self.data_loaded = False
             self.h5file = h5py.File(fname, 'r')
             
             if 'measurement/power_scan_df' in self.h5file:
@@ -138,6 +150,9 @@ class PowerScanH5View(DataBrowserView):
  
             
             self.h5file.close()
+            
+            self.data_loaded = True
+            
             self.settings['spec_index'] = 0
             
     
@@ -157,7 +172,10 @@ class PowerScanH5View(DataBrowserView):
     
     
     def on_spec_index_change(self):
+        if not self.data_loaded:
+            return
         ii = self.settings['spec_index']
+        
         self.power_plot_current_pos.setData(self.X[ii:ii+1], self.Y[ii:ii+1])
         
         spectrum = self.get_hyperspecdata(apply_spec_x_slicer=False)[ii,:]
@@ -169,15 +187,19 @@ class PowerScanH5View(DataBrowserView):
         self.spec_plot.setTitle("power_wheel_position: {:1.1f}".format(power_wheel_position), color='r')
 
     @QtCore.Slot()
-    def update_power_plotcurve(self):      
+    def update_power_plotcurve(self):
+        if not self.data_loaded:
+            return
         self.X = self.get_power_x() 
-        self.Y = self.get_power_y(True)        
+        self.Y = self.get_power_y(apply_spec_x_slicer=True)        
         self.power_plotcurve.setData(self.X, self.Y)
         self.on_spec_index_change()
         self.redo_fit()
 
     @QtCore.Slot()
     def redo_fit(self):
+        if not self.data_loaded:
+            return
         s = self.power_plot_slicer.mask
         m, b = np.polyfit(np.log10(self.X[s]), np.log10(self.Y[s]), deg=1)
         print("fit values m,b:", m,b) 
@@ -188,9 +210,13 @@ class PowerScanH5View(DataBrowserView):
 
         
     def on_change_power_x_axis(self):
+        if not self.data_loaded:
+            return        
         self.update_power_plotcurve()
         
     def get_bg(self):
+        if not self.data_loaded:
+            return        
         if self.bg_slicer.activated.val:
             bg = self.hyperspec_data[:,self.settings['chan'],self.bg_slicer.slice].mean()
         else:
@@ -218,7 +244,7 @@ class PowerScanH5View(DataBrowserView):
             self.power_plot.setLabel('left', '')
         return y
 
-    def get_power_x(self):
+    def get_power_x(self):        
         x = self.power_arrays[self.settings['power_x_axis']]
         if np.any(x <= 0): 
             Dx = 1.1 - np.min(x)

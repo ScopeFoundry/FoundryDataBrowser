@@ -546,6 +546,8 @@ class TauXFitter(BaseFitter):
 
         # Error from not integrating over 
 
+        if tau == 0: # handle wierd case so it doesn't crash
+            return np.ones_like(y)
         return y[0:3].mean() * np.exp(-t / tau)
 
 
